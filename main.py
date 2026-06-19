@@ -6,7 +6,7 @@ load_dotenv()
 TERMINAL_USERNAME = os.getenv("TERMINAL_USERNAME")
 TERMINAL_PASSWORD = os.getenv("TERMINAL_PASSWORD")
 
-from fastapi import APIRouter, FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 import uvicorn
 import asyncio
@@ -15,13 +15,13 @@ import os
 
 app = FastAPI()
 
-@app.get("/terminal")
+@app.get("/")
 async def home():
     with open("templates/terminal.html", "r", encoding="utf-8") as f:
         return HTMLResponse(f.read())
 
 
-@app.websocket("/terminal/ws")
+@app.websocket("/terminal")
 async def terminal(websocket: WebSocket):
 
     await websocket.accept()
@@ -76,17 +76,9 @@ async def terminal(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_text()
-
-            if data == "\x03":
-                print("CTRL+C")
+            if data == "\\x03":
                 child.sendcontrol("c")
                 continue
-            if data == "\x22":
-                print("CTRL+V")
-                child.sendcontrol("v")
-                continue
-
-
             child.send(data)
 
     except WebSocketDisconnect:
@@ -103,5 +95,5 @@ async def terminal(websocket: WebSocket):
 
 if __name__ == "__main__":
 
-    port = int(os.environ.get("PORT", "8000"))
+    port = int(os.environ.get("PORT", "7860"))
     uvicorn.run(app, host="0.0.0.0", port=port)
