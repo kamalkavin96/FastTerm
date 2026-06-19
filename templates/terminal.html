@@ -2,64 +2,1105 @@
 <html>
   <head>
     <meta charset="utf-8" />
-
+    <title>Terminal</title>
     <link
       rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css"
+      href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css"
     />
-
-    <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
-
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.js"></script>
     <style>
-      html,
-      body {
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
         margin: 0;
-        width: 100%;
-        height: 100%;
-        background: #000;
+        padding: 0;
       }
 
-      #terminal {
+      html,
+      body {
         width: 100%;
-        height: 100vh;
+        height: 100%;
+        background: #300a24;
+        overflow: hidden;
+        font-family: "Ubuntu", "Cantarell", sans-serif;
+      }
+
+      /* ── GNOME-style titlebar ── */
+      #titlebar {
+        display: flex;
+        align-items: center;
+        height: 36px;
+        background: linear-gradient(to bottom, #3d1433, #300a24);
+        border-bottom: 1px solid #1a0614;
+        padding: 0 8px;
+        -webkit-app-region: drag;
+        user-select: none;
+      }
+
+      #titlebar-title {
+        flex: 1;
+        text-align: center;
+        font-size: 13px;
+        font-weight: 500;
+        color: #ffffffcc;
+        letter-spacing: 0.2px;
+      }
+
+      .wc-btn {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        border: none;
+        cursor: pointer;
+        margin-right: 6px;
+        -webkit-app-region: no-drag;
+      }
+      .wc-close {
+        background: #fc5753;
+      }
+      .wc-minimize {
+        background: #fdbc40;
+      }
+      .wc-maximize {
+        background: #33c748;
+      }
+      .wc-close:hover {
+        background: #e84040;
+      }
+      .wc-minimize:hover {
+        background: #e0a030;
+      }
+      .wc-maximize:hover {
+        background: #28a83a;
+      }
+
+      /* ── Tab strip ── */
+      #tabstrip {
+        display: flex;
+        align-items: stretch;
+        height: 32px;
+        background: #1e0a18;
+        border-bottom: 1px solid #0d0009;
+        padding: 0 4px;
+        overflow-x: auto;
+      }
+
+      .tab {
+        display: flex;
+        align-items: center;
+        padding: 0 12px;
+        font-size: 13px;
+        color: #ffffff99;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        white-space: nowrap;
+        gap: 8px;
+        transition: color 0.15s;
+        flex-shrink: 0;
+      }
+      .tab.active {
+        color: #fff;
+        border-bottom-color: #e95420;
+        background: #300a24;
+      }
+      .tab:not(.active):hover {
+        color: #ffffffcc;
+      }
+
+      .tab-close {
+        font-size: 11px;
+        color: #ffffff55;
+        line-height: 1;
+        border-radius: 3px;
+        padding: 1px 4px;
+      }
+      .tab-close:hover {
+        color: #fff;
+        background: #ffffff33;
+      }
+
+      .tab-new {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        flex-shrink: 0;
+        color: #ffffff77;
+        cursor: pointer;
+        font-size: 16px;
+      }
+      .tab-new:hover {
+        color: #fff;
+        background: #ffffff11;
+      }
+
+      /* ── Terminal area ── */
+      #terminal-container {
+        width: 100%;
+        height: calc(100vh - 68px);
+        background: #300a24;
+        padding: 2px 0 0 2px;
+        position: relative;
+      }
+
+      .term-pane {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: none;
+      }
+      .term-pane.active {
+        display: block;
+      }
+
+      .xterm {
+        height: 100%;
+      }
+      .xterm-viewport {
+        background: transparent !important;
+      }
+
+      /* ── GNOME-style context menu ── */
+      #ctx-menu {
+        display: none;
+        position: fixed;
+        z-index: 9000;
+        background: #3c3c3c;
+        border: 1px solid #555;
+        border-radius: 4px;
+        padding: 4px 0;
+        min-width: 220px;
+        box-shadow:
+          0 6px 24px rgba(0, 0, 0, 0.55),
+          0 1px 4px rgba(0, 0, 0, 0.3);
+        font-family: "Ubuntu", "Cantarell", system-ui, sans-serif;
+        font-size: 13.5px;
+        color: #e8e8e8;
+        user-select: none;
+      }
+
+      .menu-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 16px;
+        cursor: pointer;
+        gap: 32px;
+        border-radius: 2px;
+        margin: 0 2px;
+      }
+      .menu-item:hover {
+        background: #4a6fa5;
+        color: #fff;
+      }
+      .menu-item.disabled {
+        color: #888;
+        cursor: default;
+      }
+      .menu-item.disabled:hover {
+        background: transparent;
+        color: #888;
+      }
+
+      .shortcut {
+        font-size: 12px;
+        color: #aaa;
+        font-family: "Ubuntu Mono", monospace;
+      }
+      .menu-item:hover .shortcut {
+        color: #cce;
+      }
+
+      .menu-sep {
+        height: 1px;
+        background: #555;
+        margin: 3px 0;
+      }
+
+      /* ── Paste overlay ── */
+      #paste-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: rgba(0, 0, 0, 0.6);
+        align-items: center;
+        justify-content: center;
+      }
+      #paste-overlay.show {
+        display: flex;
+      }
+
+      #paste-box {
+        background: #3c3c3c;
+        border: 1px solid #666;
+        border-radius: 8px;
+        padding: 20px 24px 16px;
+        width: 380px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.7);
+        font-family: "Ubuntu", system-ui, sans-serif;
+        color: #e8e8e8;
+      }
+      #paste-box h3 {
+        font-size: 14px;
+        font-weight: 500;
+        margin-bottom: 8px;
+        color: #fff;
+      }
+      #paste-box p {
+        font-size: 12px;
+        color: #aaa;
+        margin-bottom: 10px;
+      }
+      #paste-textarea {
+        width: 100%;
+        height: 80px;
+        background: #1e1e1e;
+        border: 1px solid #555;
+        border-radius: 4px;
+        color: #e8e8e8;
+        font-family: "Ubuntu Mono", "Fira Code", monospace;
+        font-size: 13px;
+        padding: 8px;
+        resize: none;
+        outline: none;
+      }
+      #paste-textarea:focus {
+        border-color: #e95420;
+      }
+      #paste-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      .paste-btn {
+        padding: 6px 20px;
+        border-radius: 4px;
+        border: 1px solid #666;
+        font-size: 13px;
+        cursor: pointer;
+        background: #555;
+        color: #e8e8e8;
+        font-family: "Ubuntu", sans-serif;
+      }
+      .paste-btn:hover {
+        background: #666;
+      }
+      .paste-btn.primary {
+        background: #e95420;
+        border-color: #e95420;
+        color: #fff;
+      }
+      .paste-btn.primary:hover {
+        background: #c74110;
       }
     </style>
   </head>
-
   <body>
-    <div id="terminal"></div>
+    <div id="titlebar">
+      <button class="wc-btn wc-close" title="Close"></button>
+      <button class="wc-btn wc-minimize" title="Minimize"></button>
+      <button class="wc-btn wc-maximize" title="Maximize"></button>
+      <div id="titlebar-title">Terminal</div>
+    </div>
+
+    <div id="tabstrip">
+      <!-- tabs injected here -->
+      <div class="tab-new" id="tab-new" title="New Tab">+</div>
+    </div>
+
+    <div id="terminal-container">
+      <!-- term panes injected here -->
+    </div>
+
+    <div id="ctx-menu">
+      <div class="menu-item" id="ctx-open-tab">
+        <span>Open Tab</span>
+        <span class="shortcut">Ctrl+Shift+T</span>
+      </div>
+      <div class="menu-sep"></div>
+      <div class="menu-item" id="ctx-copy">
+        <span>Copy</span>
+        <span class="shortcut">Ctrl+Shift+C</span>
+      </div>
+      <div class="menu-item" id="ctx-paste">
+        <span>Paste</span>
+        <span class="shortcut">Ctrl+Shift+V</span>
+      </div>
+      <div class="menu-item" id="ctx-paste-selection">
+        <span>Paste Selection</span>
+        <span class="shortcut"></span>
+      </div>
+      <div class="menu-sep"></div>
+      <div class="menu-item" id="ctx-select-all">
+        <span>Select All</span>
+        <span class="shortcut">Ctrl+Shift+A</span>
+      </div>
+      <div class="menu-sep"></div>
+      <div class="menu-item" id="ctx-clear">
+        <span>Reset and Clear</span>
+        <span class="shortcut"></span>
+      </div>
+      <div class="menu-item" id="ctx-zoom-in">
+        <span>Zoom In</span>
+        <span class="shortcut">Ctrl++</span>
+      </div>
+      <div class="menu-item" id="ctx-zoom-out">
+        <span>Zoom Out</span>
+        <span class="shortcut">Ctrl+-</span>
+      </div>
+      <div class="menu-item" id="ctx-zoom-reset">
+        <span>Normal Size</span>
+        <span class="shortcut">Ctrl+0</span>
+      </div>
+    </div>
+
+    <div id="paste-overlay">
+      <div id="paste-box">
+        <h3>Paste</h3>
+        <p>
+          Press <strong>Ctrl+V</strong> (or Cmd+V) in the box below, then click
+          Paste.
+        </p>
+        <textarea
+          id="paste-textarea"
+          placeholder="Paste here…"
+          spellcheck="false"
+          autocomplete="off"
+        ></textarea>
+        <div id="paste-actions">
+          <button class="paste-btn" id="paste-cancel">Cancel</button>
+          <button class="paste-btn primary" id="paste-send">Paste</button>
+        </div>
+      </div>
+    </div>
 
     <script>
-      const term = new Terminal({
-        cursorBlink: true,
-        convertEol: true,
-        rows: 40,
-        cols: 120,
-      });
+      (function () {
+        const isSecure = location.protocol === "https:";
+        const proto = isSecure ? "wss:" : "ws:";
 
-      term.open(document.getElementById("terminal"));
+        /* ─────────────────────────────────────────────────────────
+   Session model — each session owns its own Terminal, WS,
+   FitAddon, DOM pane and tab element.
+   ──────────────────────────────────────────────────────── */
+        let sessions = []; // array of session objects, in tab order
+        let activeId = null;
+        let sessionCounter = 0;
 
-      const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+        const tabstrip = document.getElementById("tabstrip");
+        const tabNewBtn = document.getElementById("tab-new");
+        const container = document.getElementById("terminal-container");
 
-      const socket = new WebSocket(
-        protocol + "//" + location.host + "/terminal/ws",
-      );
+        function makeSession() {
+          const id = "s" + ++sessionCounter;
 
-      socket.onopen = () => {
-        term.write("\r\nConnected\r\n");
-      };
+          /* DOM: pane */
+          const pane = document.createElement("div");
+          pane.className = "term-pane";
+          pane.id = "pane-" + id;
+          container.appendChild(pane);
 
-      socket.onmessage = (event) => {
-        term.write(event.data);
-      };
+          /* DOM: tab */
+          const tabEl = document.createElement("div");
+          tabEl.className = "tab";
+          tabEl.id = "tab-" + id;
+          tabEl.innerHTML =
+            '<span class="tab-label">bash</span>' +
+            '<span class="tab-close" title="Close">&#x2715;</span>';
+          tabstrip.insertBefore(tabEl, tabNewBtn);
 
-      socket.onclose = () => {
-        term.write("\r\nDisconnected\r\n");
-      };
+          /* xterm instance */
+          const term = new Terminal({
+            cursorBlink: true,
+            convertEol: true,
+            fontSize: 14,
+            lineHeight: 1.2,
+            letterSpacing: 0,
+            fontFamily:
+              "'Ubuntu Mono','Fira Code','DejaVu Sans Mono',monospace",
+            allowProposedApi: true,
+            scrollback: 10000,
+            rightClickSelectsWord: false,
+            theme: {
+              background: "#300a24",
+              foreground: "#ffffff",
+              cursor: "#ffffff",
+              cursorAccent: "#300a24",
+              selectionBackground: "rgba(255,255,255,0.3)",
+              black: "#2e3436",
+              red: "#cc0000",
+              green: "#4e9a06",
+              yellow: "#c4a000",
+              blue: "#3465a4",
+              magenta: "#75507b",
+              cyan: "#06989a",
+              white: "#d3d7cf",
+              brightBlack: "#555753",
+              brightRed: "#ef2929",
+              brightGreen: "#8ae234",
+              brightYellow: "#fce94f",
+              brightBlue: "#729fcf",
+              brightMagenta: "#ad7fa8",
+              brightCyan: "#34e2e2",
+              brightWhite: "#eeeeec",
+            },
+          });
 
-      term.onData((data) => {
-        socket.send(data);
-      });
+          const fitAddon = new FitAddon.FitAddon();
+          const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+          term.loadAddon(fitAddon);
+          term.loadAddon(webLinksAddon);
+          term.open(pane);
+
+          const sess = {
+            id,
+            pane,
+            tabEl,
+            term,
+            fitAddon,
+            socket: null,
+            closed: false,
+            resizeObserver: null,
+          };
+
+          /* Keyboard handling per-session */
+          term.attachCustomKeyEventHandler((e) => handleKey(sess, e));
+          term.onData((d) => send(sess, d));
+
+          /* context menu */
+          pane.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+            showMenu(sess, e.clientX, e.clientY);
+          });
+          pane.addEventListener("click", (e) => {
+            if (!document.getElementById("ctx-menu").contains(e.target)) {
+              hideMenu();
+              term.focus();
+            }
+          });
+          pane.addEventListener("mousedown", async (e) => {
+            if (e.button !== 1) return;
+            e.preventDefault();
+            await pasteNow(sess);
+          });
+
+          /* tab interactions */
+          tabEl.addEventListener("click", (e) => {
+            if (e.target.classList.contains("tab-close")) return; // handled below
+            activateSession(id);
+          });
+          tabEl.querySelector(".tab-close").addEventListener("click", (e) => {
+            e.stopPropagation();
+            confirmCloseSession(id);
+          });
+
+          /* resize */
+          sess.resizeObserver = new ResizeObserver(() => {
+            if (sess.closed) return;
+            if (pane.classList.contains("active")) {
+              try {
+                fitAddon.fit();
+              } catch (_) {}
+              sendResize(sess);
+            }
+          });
+          sess.resizeObserver.observe(pane);
+
+          sessions.push(sess);
+          return sess;
+        }
+
+        function connect(sess) {
+          if (sess.closed) return;
+          const ws = new WebSocket(
+            proto + "//" + location.host + "/terminal/ws",
+          );
+          sess.socket = ws;
+          ws.onopen = () => {
+            if (sess.closed) {
+              ws.close();
+              return;
+            }
+            sess.term.write("\r\n\x1b[32;1mConnected\x1b[0m\r\n");
+            sendResize(sess);
+          };
+          ws.onmessage = (e) => {
+            if (!sess.closed) sess.term.write(e.data);
+          };
+          ws.onclose = () => {
+            if (sess.closed) return; // user-initiated close, don't reconnect
+            sess.term.write(
+              "\r\n\x1b[31mDisconnected \xe2\x80\x94 reconnecting in 3s\xe2\x80\xa6\x1b[0m\r\n",
+            );
+            setTimeout(() => connect(sess), 3000);
+          };
+          ws.onerror = () => ws.close();
+        }
+
+        function send(sess, data) {
+          if (sess.socket && sess.socket.readyState === WebSocket.OPEN)
+            sess.socket.send(data);
+        }
+
+        /* The backend's username/password auth loop reads one WebSocket text
+   frame as one keystroke (exact-matching "\r"/"\n"/"\x7f"). Sending an
+   entire pasted string as a single frame breaks that — e.g. a pasted
+   value containing "\n" never matches the submit check and gets typed
+   into the field as a literal character instead of ending it. Splitting
+   into one frame per character makes pasted input behave like fast
+   typing, which both the auth phase and the post-auth bash loop handle
+   correctly. */
+        function sendPasted(sess, text) {
+          if (!text) return;
+          for (const ch of text) send(sess, ch);
+        }
+
+        function sendResize(sess) {
+          send(
+            sess,
+            JSON.stringify({
+              type: "resize",
+              cols: sess.term.cols,
+              rows: sess.term.rows,
+            }),
+          );
+        }
+
+        function updateTabLabel(sess, label) {
+          sess.tabEl.querySelector(".tab-label").textContent = label || "bash";
+          if (sess.pane.classList.contains("active")) {
+            document.getElementById("titlebar-title").textContent =
+              (label || "bash") + " — Terminal";
+            document.title = (label || "bash") + " — Terminal";
+          }
+        }
+
+        function activateSession(id) {
+          sessions.forEach((s) => {
+            const isActive = s.id === id;
+            s.pane.classList.toggle("active", isActive);
+            s.tabEl.classList.toggle("active", isActive);
+          });
+          activeId = id;
+          const sess = sessions.find((s) => s.id === id);
+          if (sess) {
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                try {
+                  sess.fitAddon.fit();
+                } catch (_) {}
+                if (sess.socket) {
+                  sendResize(sess);
+                } else {
+                  /* First time this pane is shown — it's now sized
+                       correctly, so connect now and the initial resize
+                       sent on socket open will carry the real dimensions
+                       instead of xterm's 80x24 default. */
+                  connect(sess);
+                }
+                sess.term.focus();
+              });
+            });
+            const label = sess.tabEl.querySelector(".tab-label").textContent;
+            document.getElementById("titlebar-title").textContent =
+              label + " — Terminal";
+            document.title = label + " — Terminal";
+          }
+        }
+
+        function confirmCloseSession(id) {
+          const sess = sessions.find((s) => s.id === id);
+          const label = sess
+            ? sess.tabEl.querySelector(".tab-label").textContent
+            : "this tab";
+          const ok = window.confirm(
+            'Close "' +
+              label +
+              '"? This will end the session and any running process in it.',
+          );
+          if (ok) closeSession(id);
+        }
+
+        function closeSession(id) {
+          const idx = sessions.findIndex((s) => s.id === id);
+          if (idx === -1) return;
+          const sess = sessions[idx];
+
+          /* Mark closed first so reconnect logic / message handlers stop */
+          sess.closed = true;
+
+          /* Tear down the actual session/process on the server side */
+          try {
+            if (sess.socket) {
+              if (sess.socket.readyState === WebSocket.OPEN) {
+                sess.socket.close(1000, "tab closed");
+              } else {
+                sess.socket.close();
+              }
+            }
+          } catch (_) {}
+
+          try {
+            sess.resizeObserver && sess.resizeObserver.disconnect();
+          } catch (_) {}
+          try {
+            sess.term.dispose();
+          } catch (_) {}
+          sess.pane.remove();
+          sess.tabEl.remove();
+
+          sessions.splice(idx, 1);
+
+          if (sessions.length === 0) {
+            /* always keep at least one tab open */
+            const ns = makeSession();
+            activateSession(ns.id);
+            return;
+          }
+
+          if (activeId === id) {
+            const next = sessions[idx] || sessions[idx - 1] || sessions[0];
+            activateSession(next.id);
+          }
+        }
+
+        /* ─────────────────────────────────────────────────────────
+   Clipboard handling
+   readText() via the async Clipboard API is the primary path.
+   It works on https origins (and localhost) once permission is
+   granted. document.execCommand('paste') is deprecated/disabled
+   in current browsers and must not be relied on — instead we
+   fall back to a manual paste box that the user pastes into
+   with the OS shortcut, which always works regardless of
+   permissions or origin.
+   ──────────────────────────────────────────────────────── */
+        /* Detect whether the Clipboard API is actually usable. Inside an
+   iframe (e.g. about:srcdoc) without "clipboard-read"/"clipboard-write"
+   in the parent's allow/Permissions-Policy, every call throws a
+   Permissions Policy violation — so we check once and skip the API
+   entirely rather than repeatedly calling into something disallowed. */
+        function clipboardApiAllowed(feature) {
+          try {
+            if (
+              document.featurePolicy &&
+              document.featurePolicy.allowsFeature
+            ) {
+              return document.featurePolicy.allowsFeature(feature);
+            }
+          } catch (_) {}
+          return true; /* unknown — let the try/catch around the real call handle it */
+        }
+        const CLIPBOARD_READ_OK = clipboardApiAllowed("clipboard-read");
+        const CLIPBOARD_WRITE_OK = clipboardApiAllowed("clipboard-write");
+
+        async function clipWrite(text) {
+          if (
+            CLIPBOARD_WRITE_OK &&
+            navigator.clipboard &&
+            navigator.clipboard.writeText
+          ) {
+            try {
+              await navigator.clipboard.writeText(text);
+              return;
+            } catch (_) {}
+          }
+          try {
+            const ta = Object.assign(document.createElement("textarea"), {
+              value: text,
+            });
+            Object.assign(ta.style, {
+              position: "fixed",
+              top: "-9999px",
+              opacity: "0",
+            });
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand("copy");
+            document.body.removeChild(ta);
+          } catch (_) {}
+        }
+
+        const overlay = document.getElementById("paste-overlay");
+        const pasteTA = document.getElementById("paste-textarea");
+        let _pasteResolve = null;
+
+        function showPasteOverlay() {
+          return new Promise((res) => {
+            _pasteResolve = res;
+            pasteTA.value = "";
+            overlay.classList.add("show");
+            setTimeout(() => pasteTA.focus(), 60);
+          });
+        }
+        function closePasteOverlay(ok) {
+          const t = ok ? pasteTA.value : "";
+          overlay.classList.remove("show");
+          if (_pasteResolve) {
+            _pasteResolve(t);
+            _pasteResolve = null;
+          }
+        }
+        document.getElementById("paste-cancel").onclick = () =>
+          closePasteOverlay(false);
+        document.getElementById("paste-send").onclick = () =>
+          closePasteOverlay(true);
+        overlay.addEventListener("click", (e) => {
+          if (e.target === overlay) closePasteOverlay(false);
+        });
+        pasteTA.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            closePasteOverlay(true);
+          }
+          if (e.key === "Escape") closePasteOverlay(false);
+        });
+
+        /* Silent paste capture element.
+   Listening for the native "paste" event on a focused, off-screen
+   contenteditable lets the browser's own OS-level paste handling
+   deliver the clipboard text directly — no Clipboard-API permission
+   prompt, no custom popup. This is the primary path. */
+        const pasteCatcher = document.createElement("div");
+        pasteCatcher.contentEditable = "true";
+        pasteCatcher.setAttribute("aria-hidden", "true");
+        Object.assign(pasteCatcher.style, {
+          position: "fixed",
+          top: "0",
+          left: "0",
+          width: "1px",
+          height: "1px",
+          opacity: "0",
+          overflow: "hidden",
+          pointerEvents: "none",
+        });
+        document.body.appendChild(pasteCatcher);
+
+        function captureNativePaste(timeoutMs) {
+          return new Promise((resolve) => {
+            let done = false;
+            const finish = (text) => {
+              if (done) return;
+              done = true;
+              pasteCatcher.removeEventListener("paste", onPaste);
+              resolve(text);
+            };
+            const onPaste = (e) => {
+              e.preventDefault();
+              const text = (e.clipboardData || window.clipboardData).getData(
+                "text",
+              );
+              finish(text || "");
+            };
+            pasteCatcher.addEventListener("paste", onPaste);
+            pasteCatcher.textContent = "";
+            pasteCatcher.focus();
+            /* If no native paste event fires shortly (e.g. this was triggered
+           by a click rather than a real Ctrl+V/Cmd+V), give up so callers
+           can fall back to another method. */
+            setTimeout(() => finish(null), timeoutMs || 150);
+          });
+        }
+
+        /* Reliable clipboard read with graceful fallback to the manual box.
+   Order: Clipboard API (silent once permitted, skipped entirely if
+   blocked by Permissions-Policy) -> native paste-event capture
+   (silent, no permission needed, but requires a real Ctrl+V/Cmd+V
+   keystroke to trigger) -> manual overlay box (always works). */
+        async function clipRead(viaKeystroke) {
+          if (
+            CLIPBOARD_READ_OK &&
+            navigator.clipboard &&
+            navigator.clipboard.readText
+          ) {
+            try {
+              const t = await navigator.clipboard.readText();
+              if (t !== undefined && t !== null) return t;
+            } catch (_) {
+              /* permission denied / blocked — try next method */
+            }
+          }
+          if (viaKeystroke) {
+            const t = await captureNativePaste(200);
+            if (t !== null) return t;
+          }
+          return await showPasteOverlay();
+        }
+
+        function copySelection(sess) {
+          if (!sess.term.hasSelection()) return false;
+          clipWrite(sess.term.getSelection());
+          sess.term.clearSelection();
+          return true;
+        }
+
+        async function paste(sess) {
+          const t = await clipRead(true);
+          if (t) sendPasted(sess, t);
+          sess.term.focus();
+        }
+
+        /* Right-click / middle-click paste. There's no real paste keystroke
+   to ride on here, so the native-event capture trick can't be used
+   (it depends on the browser's own Ctrl+V handling). Try the
+   Clipboard API (no-op if blocked by Permissions-Policy) then fall
+   back to the overlay. */
+        async function pasteNow(sess) {
+          const t = await clipRead(false);
+          if (t) sendPasted(sess, t);
+          sess.term.focus();
+        }
+
+        /* ─── Zoom helpers (apply to active session only) ───────── */
+        function zoomIn(sess) {
+          sess.term.options.fontSize = Math.min(
+            sess.term.options.fontSize + 1,
+            36,
+          );
+          sess.fitAddon.fit();
+        }
+        function zoomOut(sess) {
+          sess.term.options.fontSize = Math.max(
+            sess.term.options.fontSize - 1,
+            6,
+          );
+          sess.fitAddon.fit();
+        }
+        function zoomReset(sess) {
+          sess.term.options.fontSize = 14;
+          sess.fitAddon.fit();
+        }
+
+        /* ─── Keyboard handler ───────────────────────────────────── */
+        function handleKey(sess, e) {
+          if (e.type !== "keydown") return true;
+
+          const ctrl = e.ctrlKey || e.metaKey;
+          const shift = e.shiftKey;
+          const key = e.key.toLowerCase();
+
+          if (ctrl && !shift && key === "c" && sess.term.hasSelection()) {
+            copySelection(sess);
+            e.preventDefault();
+            return false;
+          }
+          if (ctrl && shift && key === "c") {
+            copySelection(sess);
+            e.preventDefault();
+            return false;
+          }
+          if (ctrl && e.code === "Insert") {
+            copySelection(sess);
+            e.preventDefault();
+            return false;
+          }
+
+          if (ctrl && shift && key === "v") {
+            paste(sess);
+            e.preventDefault();
+            return false;
+          }
+          if (shift && e.code === "Insert") {
+            paste(sess);
+            e.preventDefault();
+            return false;
+          }
+          if (ctrl && !shift && key === "v") {
+            paste(sess);
+            e.preventDefault();
+            return false;
+          }
+
+          if (ctrl && shift && key === "a") {
+            sess.term.selectAll();
+            e.preventDefault();
+            return false;
+          }
+
+          if (ctrl && shift && key === "t") {
+            const ns = makeSession();
+            activateSession(ns.id);
+            e.preventDefault();
+            return false;
+          }
+          if (ctrl && shift && key === "w") {
+            confirmCloseSession(sess.id);
+            e.preventDefault();
+            return false;
+          }
+
+          if (ctrl && shift && key === "k") {
+            sess.term.clear();
+            e.preventDefault();
+            return false;
+          }
+          if (ctrl && !shift && key === "l") {
+            send(sess, "\x0c");
+            e.preventDefault();
+            return false;
+          }
+
+          if (ctrl && (e.key === "=" || e.key === "+")) {
+            zoomIn(sess);
+            e.preventDefault();
+            return false;
+          }
+          if (ctrl && e.key === "-") {
+            zoomOut(sess);
+            e.preventDefault();
+            return false;
+          }
+          if (ctrl && e.key === "0") {
+            zoomReset(sess);
+            e.preventDefault();
+            return false;
+          }
+
+          if (ctrl && shift && e.key === "ArrowUp") {
+            sess.term.scrollLines(-1);
+            e.preventDefault();
+            return false;
+          }
+          if (ctrl && shift && e.key === "ArrowDown") {
+            sess.term.scrollLines(1);
+            e.preventDefault();
+            return false;
+          }
+          if (ctrl && shift && e.key === "PageUp") {
+            sess.term.scrollPages(-1);
+            e.preventDefault();
+            return false;
+          }
+          if (ctrl && shift && e.key === "PageDown") {
+            sess.term.scrollPages(1);
+            e.preventDefault();
+            return false;
+          }
+          if (ctrl && shift && e.key === "Home") {
+            sess.term.scrollToTop();
+            e.preventDefault();
+            return false;
+          }
+          if (ctrl && shift && e.key === "End") {
+            sess.term.scrollToBottom();
+            e.preventDefault();
+            return false;
+          }
+
+          if (ctrl && key === "tab") {
+            const idx = sessions.findIndex((s) => s.id === sess.id);
+            const next = sessions[(idx + 1) % sessions.length];
+            if (next) activateSession(next.id);
+            e.preventDefault();
+            return false;
+          }
+
+          return true;
+        }
+
+        /* ─── Context menu (tracks which session it was opened for) ─ */
+        const ctxMenu = document.getElementById("ctx-menu");
+        let ctxSess = null;
+
+        function showMenu(sess, x, y) {
+          ctxSess = sess;
+          const hasSel = sess.term.hasSelection();
+          document
+            .getElementById("ctx-copy")
+            .classList.toggle("disabled", !hasSel);
+          document
+            .getElementById("ctx-paste-selection")
+            .classList.toggle("disabled", !hasSel);
+
+          ctxMenu.style.display = "block";
+          const mw = ctxMenu.offsetWidth || 220;
+          const mh = ctxMenu.offsetHeight || 240;
+          ctxMenu.style.left = (x + mw > innerWidth ? x - mw : x) + "px";
+          ctxMenu.style.top = (y + mh > innerHeight ? y - mh : y) + "px";
+        }
+        function hideMenu() {
+          ctxMenu.style.display = "none";
+        }
+
+        document.addEventListener("click", (e) => {
+          if (!ctxMenu.contains(e.target)) hideMenu();
+        });
+        document.addEventListener("keydown", (e) => {
+          if (e.key === "Escape") hideMenu();
+        });
+
+        function menuAction(id, fn) {
+          document.getElementById(id).addEventListener("click", async (e) => {
+            e.stopPropagation();
+            hideMenu();
+            if (ctxSess) await fn(ctxSess);
+            if (ctxSess) ctxSess.term.focus();
+          });
+        }
+
+        menuAction("ctx-open-tab", () => {
+          const ns = makeSession();
+          activateSession(ns.id);
+        });
+        menuAction("ctx-copy", (sess) => copySelection(sess));
+        menuAction("ctx-paste", (sess) => pasteNow(sess));
+        menuAction("ctx-paste-selection", (sess) => {
+          if (sess.term.hasSelection())
+            sendPasted(sess, sess.term.getSelection());
+        });
+        menuAction("ctx-select-all", (sess) => sess.term.selectAll());
+        menuAction("ctx-clear", (sess) => {
+          sess.term.reset();
+          send(sess, "\x0c");
+        });
+        menuAction("ctx-zoom-in", (sess) => zoomIn(sess));
+        menuAction("ctx-zoom-out", (sess) => zoomOut(sess));
+        menuAction("ctx-zoom-reset", (sess) => zoomReset(sess));
+
+        /* ─── New tab button ─────────────────────────────────────── */
+        tabNewBtn.addEventListener("click", () => {
+          const ns = makeSession();
+          activateSession(ns.id);
+        });
+
+        /* ─── Global resize fallback ─────────────────────────────── */
+        window.addEventListener("resize", () => {
+          const sess = sessions.find((s) => s.id === activeId);
+          if (sess) {
+            try {
+              sess.fitAddon.fit();
+            } catch (_) {}
+            sendResize(sess);
+          }
+        });
+
+        /* ─── Warn before closing the browser tab/window ────────── */
+        window.addEventListener("beforeunload", (e) => {
+          if (sessions.length === 0) return;
+          e.preventDefault();
+          e.returnValue = "";
+          return "";
+        });
+
+        /* ─── Titlebar buttons (cosmetic) ───────────────────────── */
+        document.querySelector(".wc-close").onclick = () => window.close();
+        document.querySelector(".wc-minimize").onclick = () => {};
+        document.querySelector(".wc-maximize").onclick = () => {
+          if (!document.fullscreenElement)
+            document.documentElement.requestFullscreen?.();
+          else document.exitFullscreen?.();
+        };
+
+        /* ─── Boot: first session ───────────────────────────────── */
+        const first = makeSession();
+        activateSession(first.id);
+      })();
     </script>
   </body>
 </html>
