@@ -72,6 +72,7 @@ async def terminal(websocket: WebSocket):
                 break
 
     reader_task = asyncio.create_task(read_terminal())
+    
 
     try:
         while True:
