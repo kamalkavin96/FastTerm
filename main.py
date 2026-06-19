@@ -76,7 +76,8 @@ async def terminal(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_text()
-            if data == "\\x03":
+            if data == "\x03":
+                print("CTRL+C")
                 child.sendcontrol("c")
                 continue
             child.send(data)

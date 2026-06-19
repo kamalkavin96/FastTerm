@@ -58,6 +58,7 @@
       };
 
       term.onData((data) => {
+        console.log(data, data.charCodeAt(0));
         socket.send(data);
       });
     </script>
