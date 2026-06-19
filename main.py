@@ -35,7 +35,6 @@ async def terminal(websocket: WebSocket):
         if data in ("\r", "\n"):
             break
         username += data
-        print(data)
         await websocket.send_text(data)
 
     await websocket.send_text("\r\nPassword: ")
@@ -96,5 +95,5 @@ async def terminal(websocket: WebSocket):
 
 if __name__ == "__main__":
 
-    port = int(os.environ.get("PORT", "8000"))
+    port = int(os.environ.get("PORT", "7860"))
     uvicorn.run(app, host="0.0.0.0", port=port)
