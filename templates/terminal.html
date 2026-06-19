@@ -42,11 +42,11 @@
       const protocol = location.protocol === "https:" ? "wss:" : "ws:";
 
       const socket = new WebSocket(
-        protocol + "//" + location.host + "/terminal/ws",
+        protocol + "//" + location.host + "/terminal",
       );
 
       socket.onopen = () => {
-        term.write("\\r\\nConnected\\r\\n");
+        term.write("\r\nConnected\r\n");
       };
 
       socket.onmessage = (event) => {
@@ -54,13 +54,10 @@
       };
 
       socket.onclose = () => {
-        term.write("\\r\\nDisconnected\\r\\n");
+        term.write("\r\nDisconnected\r\n");
       };
 
-
-
       term.onData((data) => {
-        console.log(data, data.charCodeAt(0));
         socket.send(data);
       });
     </script>
