@@ -76,14 +76,17 @@ async def terminal(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_text()
+
             if data == "\x03":
                 print("CTRL+C")
                 child.sendcontrol("c")
                 continue
             if data == "\x22":
                 print("CTRL+V")
-                child.sendcontrol("c")
+                child.sendcontrol("v")
                 continue
+
+
             child.send(data)
 
     except WebSocketDisconnect:
