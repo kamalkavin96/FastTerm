@@ -37,6 +37,7 @@ log = logging.getLogger("terminal")
 
 TERMINAL_USERNAME = os.getenv("TERMINAL_USERNAME", "")
 TERMINAL_PASSWORD = os.getenv("TERMINAL_PASSWORD", "")
+BASE_PATH = os.getenv("BASE_PATH", "")
 
 PTY_READ_CHUNK = 65536
 PTY_IDLE_POLL_SECONDS = 5.0
@@ -294,6 +295,7 @@ async def root():
 async def home():
     with open(os.path.join(os.path.dirname(__file__), "templates", "terminal.html"), "rb") as f:
         html = f.read().decode("utf-8", errors="replace")
+        html = html.replace("{{{BASE_PATH}}}", BASE_PATH)
     return HTMLResponse(html)
 
 
