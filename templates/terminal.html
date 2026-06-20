@@ -10,6 +10,7 @@
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-search@0.13.0/lib/xterm-addon-search.js"></script>
     <style>
       *,
       *::before,
@@ -49,7 +50,6 @@
         letter-spacing: 0.2px;
       }
 
-      /* window control buttons (close / minimize / maximize) */
       .wc-btn {
         width: 14px;
         height: 14px;
@@ -78,6 +78,25 @@
         background: #28a83a;
       }
 
+      .titlebar-icon-btn {
+        width: 26px;
+        height: 26px;
+        border-radius: 4px;
+        border: none;
+        background: transparent;
+        color: #ffffffaa;
+        cursor: pointer;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-app-region: no-drag;
+      }
+      .titlebar-icon-btn:hover {
+        background: #ffffff1a;
+        color: #fff;
+      }
+
       /* ── Tab strip ── */
       #tabstrip {
         display: flex;
@@ -86,12 +105,13 @@
         background: #1e0a18;
         border-bottom: 1px solid #0d0009;
         padding: 0 4px;
+        overflow-x: auto;
       }
 
       .tab {
         display: flex;
         align-items: center;
-        padding: 0 16px;
+        padding: 0 12px;
         font-size: 13px;
         color: #ffffff99;
         cursor: pointer;
@@ -99,6 +119,7 @@
         white-space: nowrap;
         gap: 8px;
         transition: color 0.15s;
+        flex-shrink: 0;
       }
       .tab.active {
         color: #fff;
@@ -108,33 +129,82 @@
       .tab:not(.active):hover {
         color: #ffffffcc;
       }
+      .tab.bell-flash {
+        color: #fce94f !important;
+      }
 
       .tab-close {
         font-size: 11px;
         color: #ffffff55;
         line-height: 1;
         border-radius: 3px;
-        padding: 1px 3px;
+        padding: 1px 4px;
       }
       .tab-close:hover {
         color: #fff;
-        background: #ffffff22;
+        background: #ffffff33;
+      }
+
+      .tab-new {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        flex-shrink: 0;
+        color: #ffffff77;
+        cursor: pointer;
+        font-size: 16px;
+      }
+      .tab-new:hover {
+        color: #fff;
+        background: #ffffff11;
       }
 
       /* ── Terminal area ── */
       #terminal-container {
         width: 100%;
-        height: calc(100vh - 68px); /* titlebar 36 + tabstrip 32 */
+        height: calc(100vh - 68px);
         background: #300a24;
         padding: 2px 0 0 2px;
+        position: relative;
       }
 
-      /* Fix xterm canvas bleeding */
+      .term-pane {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: none;
+      }
+      .term-pane.active {
+        display: block;
+      }
+
       .xterm {
         height: 100%;
       }
       .xterm-viewport {
         background: transparent !important;
+      }
+
+      /* visual bell flash */
+      .term-pane.bell-flash::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: #ffffff;
+        opacity: 0;
+        pointer-events: none;
+        animation: bellflash 220ms ease-out;
+      }
+      @keyframes bellflash {
+        0% {
+          opacity: 0.18;
+        }
+        100% {
+          opacity: 0;
+        }
       }
 
       /* ── GNOME-style context menu ── */
@@ -194,7 +264,7 @@
         margin: 3px 0;
       }
 
-      /* ── Paste overlay (HTTP fallback) ── */
+      /* ── Paste overlay ── */
       #paste-overlay {
         display: none;
         position: fixed;
@@ -272,29 +342,125 @@
       .paste-btn.primary:hover {
         background: #c74110;
       }
+
+      /* ── Settings overlay (theme / font / cursor) ── */
+      #settings-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: rgba(0, 0, 0, 0.6);
+        align-items: center;
+        justify-content: center;
+      }
+      #settings-overlay.show {
+        display: flex;
+      }
+      #settings-box {
+        background: #3c3c3c;
+        border: 1px solid #666;
+        border-radius: 8px;
+        padding: 20px 24px;
+        width: 420px;
+        max-height: 80vh;
+        overflow-y: auto;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.7);
+        font-family: "Ubuntu", system-ui, sans-serif;
+        color: #e8e8e8;
+      }
+      #settings-box h3 {
+        font-size: 15px;
+        font-weight: 500;
+        margin-bottom: 14px;
+        color: #fff;
+      }
+      .settings-row {
+        margin-bottom: 14px;
+      }
+      .settings-row label {
+        display: block;
+        font-size: 12px;
+        color: #aaa;
+        margin-bottom: 6px;
+      }
+      .settings-row select,
+      .settings-row input[type="range"] {
+        width: 100%;
+        background: #1e1e1e;
+        border: 1px solid #555;
+        border-radius: 4px;
+        color: #e8e8e8;
+        font-family: "Ubuntu", sans-serif;
+        font-size: 13px;
+        padding: 6px 8px;
+      }
+      .theme-swatches {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+      }
+      .theme-swatch {
+        height: 36px;
+        border-radius: 4px;
+        cursor: pointer;
+        border: 2px solid transparent;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        font-size: 10px;
+        color: #fff;
+        padding-bottom: 2px;
+        overflow: hidden;
+      }
+      .theme-swatch.selected {
+        border-color: #e95420;
+      }
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .toggle-row label {
+        margin-bottom: 0;
+      }
+      #settings-close-row {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 4px;
+      }
     </style>
   </head>
   <body>
-    <!-- GNOME titlebar -->
     <div id="titlebar">
       <button class="wc-btn wc-close" title="Close"></button>
       <button class="wc-btn wc-minimize" title="Minimize"></button>
       <button class="wc-btn wc-maximize" title="Maximize"></button>
       <div id="titlebar-title">Terminal</div>
+      <button
+        class="titlebar-icon-btn"
+        id="search-toggle-btn"
+        title="Search (Ctrl+F)"
+      >
+        &#128269;
+      </button>
+      <button
+        class="titlebar-icon-btn"
+        id="settings-btn"
+        title="Theme &amp; Font Settings"
+      >
+        &#9881;
+      </button>
     </div>
 
-    <!-- Tab strip -->
     <div id="tabstrip">
-      <div class="tab active" id="tab1">
-        <span id="tab1-label">bash</span>
-        <span class="tab-close">&#x2715;</span>
-      </div>
+      <!-- tabs injected here -->
+      <div class="tab-new" id="tab-new" title="New Tab">+</div>
     </div>
 
-    <!-- Terminal -->
-    <div id="terminal-container"></div>
+    <div id="terminal-container">
+      <!-- term panes injected here -->
+    </div>
 
-    <!-- Context menu — mirrors GNOME Terminal exactly -->
     <div id="ctx-menu">
       <div class="menu-item" id="ctx-open-tab">
         <span>Open Tab</span>
@@ -318,6 +484,10 @@
         <span>Select All</span>
         <span class="shortcut">Ctrl+Shift+A</span>
       </div>
+      <div class="menu-item" id="ctx-find">
+        <span>Find</span>
+        <span class="shortcut">Ctrl+F</span>
+      </div>
       <div class="menu-sep"></div>
       <div class="menu-item" id="ctx-clear">
         <span>Reset and Clear</span>
@@ -335,13 +505,20 @@
         <span>Normal Size</span>
         <span class="shortcut">Ctrl+0</span>
       </div>
+      <div class="menu-sep"></div>
+      <div class="menu-item" id="ctx-settings">
+        <span>Theme &amp; Font…</span>
+        <span class="shortcut"></span>
+      </div>
     </div>
 
-    <!-- Paste overlay (HTTP fallback only) -->
     <div id="paste-overlay">
       <div id="paste-box">
         <h3>Paste</h3>
-        <p>Press <strong>Ctrl+V</strong> in the box below, then click Paste.</p>
+        <p>
+          Press <strong>Ctrl+V</strong> (or Cmd+V) in the box below, then click
+          Paste.
+        </p>
         <textarea
           id="paste-textarea"
           placeholder="Paste here…"
@@ -355,134 +532,775 @@
       </div>
     </div>
 
+    <div id="settings-overlay">
+      <div id="settings-box">
+        <h3>Theme &amp; Font</h3>
+        <div class="settings-row">
+          <label>Color theme</label>
+          <div class="theme-swatches" id="theme-swatches"></div>
+        </div>
+        <div class="settings-row">
+          <label for="font-select">Font family</label>
+          <select id="font-select"></select>
+        </div>
+        <div class="settings-row">
+          <label for="cursor-style-select">Cursor style</label>
+          <select id="cursor-style-select">
+            <option value="block">Block</option>
+            <option value="bar">Bar</option>
+            <option value="underline">Underline</option>
+          </select>
+        </div>
+        <div class="settings-row toggle-row">
+          <label for="cursor-blink-toggle">Cursor blink</label>
+          <input type="checkbox" id="cursor-blink-toggle" checked />
+        </div>
+        <div id="settings-close-row">
+          <button class="paste-btn primary" id="settings-close">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bell sound -->
+    <audio id="bell-audio" preload="auto">
+      <source
+        src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA="
+        type="audio/wav"
+      />
+    </audio>
+
     <script>
       (function () {
-        /* ─── Terminal init ───────────────────────────────────── */
-        const term = new Terminal({
-          cursorBlink: true,
-          convertEol: true,
-          fontSize: 14,
-          lineHeight: 1.2,
-          letterSpacing: 0,
-          fontFamily: "'Ubuntu Mono','Fira Code','DejaVu Sans Mono',monospace",
-          allowProposedApi: true,
-          scrollback: 10000,
-          rightClickSelectsWord: false,
-          /* Exact Ubuntu/GNOME Terminal Tango palette */
-          theme: {
-            background: "#300a24",
-            foreground: "#ffffff",
-            cursor: "#ffffff",
-            cursorAccent: "#300a24",
-            selectionBackground: "rgba(255,255,255,0.3)",
-            /* Normal */
-            black: "#2e3436",
-            red: "#cc0000",
-            green: "#4e9a06",
-            yellow: "#c4a000",
-            blue: "#3465a4",
-            magenta: "#75507b",
-            cyan: "#06989a",
-            white: "#d3d7cf",
-            /* Bright */
-            brightBlack: "#555753",
-            brightRed: "#ef2929",
-            brightGreen: "#8ae234",
-            brightYellow: "#fce94f",
-            brightBlue: "#729fcf",
-            brightMagenta: "#ad7fa8",
-            brightCyan: "#34e2e2",
-            brightWhite: "#eeeeec",
-          },
-        });
-
-        const fitAddon = new FitAddon.FitAddon();
-        const webLinksAddon = new WebLinksAddon.WebLinksAddon();
-        term.loadAddon(fitAddon);
-        term.loadAddon(webLinksAddon);
-        term.open(document.getElementById("terminal-container"));
-        fitAddon.fit();
-        term.focus();
-
-        /* ─── WebSocket ──────────────────────────────────────── */
-        const proto = location.protocol === "https:" ? "wss:" : "ws:";
         const isSecure = location.protocol === "https:";
-        let socket = null;
+        const proto = isSecure ? "wss:" : "ws:";
 
-        function send(data) {
-          if (socket && socket.readyState === WebSocket.OPEN) socket.send(data);
+        /* ─────────────────────────────────────────────────────────
+   Theme presets (Tier 1)
+   ──────────────────────────────────────────────────────── */
+        const THEMES = {
+          gnome: {
+            label: "GNOME",
+            bg: "#300a24",
+            theme: {
+              background: "#300a24",
+              foreground: "#ffffff",
+              cursor: "#ffffff",
+              cursorAccent: "#300a24",
+              selectionBackground: "rgba(255,255,255,0.3)",
+              black: "#2e3436",
+              red: "#cc0000",
+              green: "#4e9a06",
+              yellow: "#c4a000",
+              blue: "#3465a4",
+              magenta: "#75507b",
+              cyan: "#06989a",
+              white: "#d3d7cf",
+              brightBlack: "#555753",
+              brightRed: "#ef2929",
+              brightGreen: "#8ae234",
+              brightYellow: "#fce94f",
+              brightBlue: "#729fcf",
+              brightMagenta: "#ad7fa8",
+              brightCyan: "#34e2e2",
+              brightWhite: "#eeeeec",
+            },
+          },
+          dracula: {
+            label: "Dracula",
+            bg: "#282a36",
+            theme: {
+              background: "#282a36",
+              foreground: "#f8f8f2",
+              cursor: "#f8f8f2",
+              cursorAccent: "#282a36",
+              selectionBackground: "rgba(189,147,249,0.3)",
+              black: "#21222c",
+              red: "#ff5555",
+              green: "#50fa7b",
+              yellow: "#f1fa8c",
+              blue: "#bd93f9",
+              magenta: "#ff79c6",
+              cyan: "#8be9fd",
+              white: "#f8f8f2",
+              brightBlack: "#6272a4",
+              brightRed: "#ff6e6e",
+              brightGreen: "#69ff94",
+              brightYellow: "#ffffa5",
+              brightBlue: "#d6acff",
+              brightMagenta: "#ff92df",
+              brightCyan: "#a4ffff",
+              brightWhite: "#ffffff",
+            },
+          },
+          solarized_dark: {
+            label: "Solarized Dark",
+            bg: "#002b36",
+            theme: {
+              background: "#002b36",
+              foreground: "#839496",
+              cursor: "#839496",
+              cursorAccent: "#002b36",
+              selectionBackground: "rgba(131,148,150,0.3)",
+              black: "#073642",
+              red: "#dc322f",
+              green: "#859900",
+              yellow: "#b58900",
+              blue: "#268bd2",
+              magenta: "#d33682",
+              cyan: "#2aa198",
+              white: "#eee8d5",
+              brightBlack: "#002b36",
+              brightRed: "#cb4b16",
+              brightGreen: "#586e75",
+              brightYellow: "#657b83",
+              brightBlue: "#839496",
+              brightMagenta: "#6c71c4",
+              brightCyan: "#93a1a1",
+              brightWhite: "#fdf6e3",
+            },
+          },
+          solarized_light: {
+            label: "Solarized Light",
+            bg: "#fdf6e3",
+            theme: {
+              background: "#fdf6e3",
+              foreground: "#657b83",
+              cursor: "#657b83",
+              cursorAccent: "#fdf6e3",
+              selectionBackground: "rgba(101,123,131,0.25)",
+              black: "#073642",
+              red: "#dc322f",
+              green: "#859900",
+              yellow: "#b58900",
+              blue: "#268bd2",
+              magenta: "#d33682",
+              cyan: "#2aa198",
+              white: "#eee8d5",
+              brightBlack: "#002b36",
+              brightRed: "#cb4b16",
+              brightGreen: "#586e75",
+              brightYellow: "#657b83",
+              brightBlue: "#839496",
+              brightMagenta: "#6c71c4",
+              brightCyan: "#93a1a1",
+              brightWhite: "#fdf6e3",
+            },
+          },
+          nord: {
+            label: "Nord",
+            bg: "#2e3440",
+            theme: {
+              background: "#2e3440",
+              foreground: "#d8dee9",
+              cursor: "#d8dee9",
+              cursorAccent: "#2e3440",
+              selectionBackground: "rgba(136,192,208,0.3)",
+              black: "#3b4252",
+              red: "#bf616a",
+              green: "#a3be8c",
+              yellow: "#ebcb8b",
+              blue: "#81a1c1",
+              magenta: "#b48ead",
+              cyan: "#88c0d0",
+              white: "#e5e9f0",
+              brightBlack: "#4c566a",
+              brightRed: "#bf616a",
+              brightGreen: "#a3be8c",
+              brightYellow: "#ebcb8b",
+              brightBlue: "#81a1c1",
+              brightMagenta: "#b48ead",
+              brightCyan: "#8fbcbb",
+              brightWhite: "#eceff4",
+            },
+          },
+          gruvbox: {
+            label: "Gruvbox",
+            bg: "#282828",
+            theme: {
+              background: "#282828",
+              foreground: "#ebdbb2",
+              cursor: "#ebdbb2",
+              cursorAccent: "#282828",
+              selectionBackground: "rgba(235,219,178,0.25)",
+              black: "#282828",
+              red: "#cc241d",
+              green: "#98971a",
+              yellow: "#d79921",
+              blue: "#458588",
+              magenta: "#b16286",
+              cyan: "#689d6a",
+              white: "#a89984",
+              brightBlack: "#928374",
+              brightRed: "#fb4934",
+              brightGreen: "#b8bb26",
+              brightYellow: "#fabd2f",
+              brightBlue: "#83a598",
+              brightMagenta: "#d3869b",
+              brightCyan: "#8ec07c",
+              brightWhite: "#ebdbb2",
+            },
+          },
+          one_dark: {
+            label: "One Dark",
+            bg: "#282c34",
+            theme: {
+              background: "#282c34",
+              foreground: "#abb2bf",
+              cursor: "#abb2bf",
+              cursorAccent: "#282c34",
+              selectionBackground: "rgba(171,178,191,0.25)",
+              black: "#282c34",
+              red: "#e06c75",
+              green: "#98c379",
+              yellow: "#e5c07b",
+              blue: "#61afef",
+              magenta: "#c678dd",
+              cyan: "#56b6c2",
+              white: "#abb2bf",
+              brightBlack: "#5c6370",
+              brightRed: "#e06c75",
+              brightGreen: "#98c379",
+              brightYellow: "#e5c07b",
+              brightBlue: "#61afef",
+              brightMagenta: "#c678dd",
+              brightCyan: "#56b6c2",
+              brightWhite: "#ffffff",
+            },
+          },
+          monokai: {
+            label: "Monokai",
+            bg: "#272822",
+            theme: {
+              background: "#272822",
+              foreground: "#f8f8f2",
+              cursor: "#f8f8f2",
+              cursorAccent: "#272822",
+              selectionBackground: "rgba(73,72,62,0.6)",
+              black: "#272822",
+              red: "#f92672",
+              green: "#a6e22e",
+              yellow: "#f4bf75",
+              blue: "#66d9ef",
+              magenta: "#ae81ff",
+              cyan: "#a1efe4",
+              white: "#f8f8f2",
+              brightBlack: "#75715e",
+              brightRed: "#f92672",
+              brightGreen: "#a6e22e",
+              brightYellow: "#f4bf75",
+              brightBlue: "#66d9ef",
+              brightMagenta: "#ae81ff",
+              brightCyan: "#a1efe4",
+              brightWhite: "#f9f8f5",
+            },
+          },
+          catppuccin: {
+            label: "Catppuccin",
+            bg: "#1e1e2e",
+            theme: {
+              background: "#1e1e2e",
+              foreground: "#cdd6f4",
+              cursor: "#f5e0dc",
+              cursorAccent: "#1e1e2e",
+              selectionBackground: "rgba(245,224,220,0.25)",
+              black: "#45475a",
+              red: "#f38ba8",
+              green: "#a6e3a1",
+              yellow: "#f9e2af",
+              blue: "#89b4fa",
+              magenta: "#f5c2e7",
+              cyan: "#94e2d5",
+              white: "#bac2de",
+              brightBlack: "#585b70",
+              brightRed: "#f38ba8",
+              brightGreen: "#a6e3a1",
+              brightYellow: "#f9e2af",
+              brightBlue: "#89b4fa",
+              brightMagenta: "#f5c2e7",
+              brightCyan: "#94e2d5",
+              brightWhite: "#a6adc8",
+            },
+          },
+        };
+
+        const FONTS = [
+          {
+            label: "Ubuntu Mono",
+            value: "'Ubuntu Mono','DejaVu Sans Mono',monospace",
+          },
+          {
+            label: "Fira Code",
+            value: "'Fira Code','DejaVu Sans Mono',monospace",
+          },
+          {
+            label: "JetBrains Mono",
+            value: "'JetBrains Mono','DejaVu Sans Mono',monospace",
+          },
+          {
+            label: "Cascadia Code",
+            value: "'Cascadia Code','DejaVu Sans Mono',monospace",
+          },
+          { label: "DejaVu Sans Mono", value: "'DejaVu Sans Mono',monospace" },
+          { label: "Courier New", value: "'Courier New',monospace" },
+        ];
+
+        const SETTINGS_KEY = "webterm.settings.v1";
+        function loadSettings() {
+          try {
+            const raw = localStorage.getItem(SETTINGS_KEY);
+            if (raw)
+              return Object.assign(
+                {
+                  themeId: "gnome",
+                  font: FONTS[0].value,
+                  cursorStyle: "block",
+                  cursorBlink: true,
+                },
+                JSON.parse(raw),
+              );
+          } catch (_) {}
+          return {
+            themeId: "gnome",
+            font: FONTS[0].value,
+            cursorStyle: "block",
+            cursorBlink: true,
+          };
+        }
+        function saveSettings(s) {
+          try {
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+          } catch (_) {}
+        }
+        let settings = loadSettings();
+
+        /* ─────────────────────────────────────────────────────────
+   Session model — each session owns its own Terminal, WS,
+   FitAddon, SearchAddon, DOM pane and tab element.
+   ──────────────────────────────────────────────────────── */
+        let sessions = []; // array of session objects, in tab order
+        let activeId = null;
+        let sessionCounter = 0;
+
+        const tabstrip = document.getElementById("tabstrip");
+        const tabNewBtn = document.getElementById("tab-new");
+        const container = document.getElementById("terminal-container");
+        const bellAudio = document.getElementById("bell-audio");
+
+        /* Tier 1: tmux-backed persistence — each tab gets a stable sid stored in
+   localStorage. Reconnecting (same browser, same tab slot) reattaches the
+   same tmux session server-side instead of starting a fresh shell. */
+        function genSid() {
+          return (
+            "t" +
+            Date.now().toString(36) +
+            Math.random().toString(36).slice(2, 8)
+          );
+        }
+        function loadSidList() {
+          try {
+            const raw = localStorage.getItem("webterm.sids.v1");
+            if (raw) return JSON.parse(raw);
+          } catch (_) {}
+          return [];
+        }
+        function saveSidList() {
+          try {
+            localStorage.setItem(
+              "webterm.sids.v1",
+              JSON.stringify(sessions.map((s) => s.sid)),
+            );
+          } catch (_) {}
         }
 
-        function sendResize() {
+        function makeSession(existingSid) {
+          const id = "s" + ++sessionCounter;
+          const sid = existingSid || genSid();
+
+          /* DOM: pane */
+          const pane = document.createElement("div");
+          pane.className = "term-pane";
+          pane.id = "pane-" + id;
+          container.appendChild(pane);
+
+          /* DOM: tab */
+          const tabEl = document.createElement("div");
+          tabEl.className = "tab";
+          tabEl.id = "tab-" + id;
+          tabEl.innerHTML =
+            '<span class="tab-label">bash</span>' +
+            '<span class="tab-close" title="Close">&#x2715;</span>';
+          tabstrip.insertBefore(tabEl, tabNewBtn);
+
+          /* xterm instance */
+          const themeDef = THEMES[settings.themeId] || THEMES.gnome;
+          const term = new Terminal({
+            cursorBlink: settings.cursorBlink,
+            cursorStyle: settings.cursorStyle,
+            convertEol: true,
+            fontSize: 14,
+            lineHeight: 1.2,
+            letterSpacing: 0,
+            fontFamily: settings.font,
+            allowProposedApi: true,
+            scrollback: 10000,
+            rightClickSelectsWord: false,
+            bellStyle: "sound",
+            theme: themeDef.theme,
+          });
+
+          const fitAddon = new FitAddon.FitAddon();
+          const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+          const searchAddon = new SearchAddon.SearchAddon();
+          term.loadAddon(fitAddon);
+          term.loadAddon(webLinksAddon);
+          term.loadAddon(searchAddon);
+          term.open(pane);
+
+          const sess = {
+            id,
+            sid,
+            pane,
+            tabEl,
+            term,
+            fitAddon,
+            searchAddon,
+            socket: null,
+            closed: false,
+            resizeObserver: null,
+            reconnectAttempt: 0,
+            reconnectTimer: null,
+          };
+
+          /* Tier 1: dynamic tab titles from OSC escape sequences (window title) */
+          term.onTitleChange((title) => {
+            if (title) updateTabLabel(sess, title);
+          });
+
+          /* Tier 1: visual bell flash + background-tab title flash on BEL (\x07) */
+          let bellFlashTimer = null;
+          let titleFlashTimer = null;
+          function triggerBell() {
+            pane.classList.remove("bell-flash");
+            void pane.offsetWidth; // restart animation
+            pane.classList.add("bell-flash");
+            clearTimeout(bellFlashTimer);
+            bellFlashTimer = setTimeout(
+              () => pane.classList.remove("bell-flash"),
+              250,
+            );
+
+            if (!pane.classList.contains("active") || document.hidden) {
+              sess.tabEl.classList.add("bell-flash");
+              let on = false;
+              clearInterval(titleFlashTimer);
+              titleFlashTimer = setInterval(() => {
+                on = !on;
+                document.title = on
+                  ? "🔔 Terminal"
+                  : sess.tabEl.querySelector(".tab-label").textContent +
+                    " — Terminal";
+              }, 700);
+              const stopFlash = () => {
+                clearInterval(titleFlashTimer);
+                sess.tabEl.classList.remove("bell-flash");
+                document.title =
+                  sess.tabEl.querySelector(".tab-label").textContent +
+                  " — Terminal";
+                pane.removeEventListener("click", stopFlash);
+                document.removeEventListener("visibilitychange", stopFlash);
+              };
+              pane.addEventListener("click", stopFlash, { once: true });
+              document.addEventListener("visibilitychange", stopFlash, {
+                once: true,
+              });
+            }
+            try {
+              bellAudio.currentTime = 0;
+              bellAudio.play().catch(() => {});
+            } catch (_) {}
+          }
+          sess._onMessageBellScan = (text) => {
+            if (text.indexOf("\x07") !== -1) triggerBell();
+          };
+
+          /* Keyboard handling per-session */
+          term.attachCustomKeyEventHandler((e) => handleKey(sess, e));
+          term.onData((d) => send(sess, d));
+
+          /* context menu */
+          pane.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+            showMenu(sess, e.clientX, e.clientY);
+          });
+          pane.addEventListener("click", (e) => {
+            if (!document.getElementById("ctx-menu").contains(e.target)) {
+              hideMenu();
+              term.focus();
+            }
+          });
+          pane.addEventListener("mousedown", async (e) => {
+            if (e.button !== 1) return;
+            e.preventDefault();
+            await pasteNow(sess);
+          });
+
+          /* tab interactions */
+          tabEl.addEventListener("click", (e) => {
+            if (e.target.classList.contains("tab-close")) return; // handled below
+            activateSession(id);
+          });
+          tabEl.querySelector(".tab-close").addEventListener("click", (e) => {
+            e.stopPropagation();
+            confirmCloseSession(id);
+          });
+
+          /* resize */
+          sess.resizeObserver = new ResizeObserver(() => {
+            if (sess.closed) return;
+            if (pane.classList.contains("active")) {
+              try {
+                fitAddon.fit();
+              } catch (_) {}
+              sendResize(sess);
+            }
+          });
+          sess.resizeObserver.observe(pane);
+
+          sessions.push(sess);
+          saveSidList();
+          return sess;
+        }
+
+        function connect(sess) {
+          if (sess.closed) return;
+          clearTimeout(sess.reconnectTimer);
+          const url =
+            proto +
+            "//" +
+            location.host +
+            "/terminal/ws?sid=" +
+            encodeURIComponent(sess.sid);
+          const ws = new WebSocket(url);
+          sess.socket = ws;
+          ws.onopen = () => {
+            if (sess.closed) {
+              ws.close();
+              return;
+            }
+            sess.reconnectAttempt = 0;
+            sess.term.write("\r\n\x1b[32;1mConnected\x1b[0m\r\n");
+            sendResize(sess);
+          };
+          ws.onmessage = (e) => {
+            if (sess.closed) return;
+            sess.term.write(e.data);
+            sess._onMessageBellScan(e.data);
+          };
+          ws.onclose = () => {
+            if (sess.closed) return; // user-initiated close, don't reconnect
+            sess.reconnectAttempt = Math.min(sess.reconnectAttempt + 1, 8);
+            /* Tier 1: exponential backoff with jitter, capped at ~30s */
+            const base = Math.min(
+              30000,
+              500 * Math.pow(2, sess.reconnectAttempt),
+            );
+            const jitter = Math.random() * base * 0.3;
+            const delay = Math.round(base * 0.7 + jitter);
+            sess.term.write(
+              "\r\n\x1b[31mDisconnected \xe2\x80\x94 reconnecting in " +
+                (delay / 1000).toFixed(1) +
+                "s\xe2\x80\xa6\x1b[0m\r\n",
+            );
+            sess.reconnectTimer = setTimeout(() => connect(sess), delay);
+          };
+          ws.onerror = () => ws.close();
+        }
+
+        function send(sess, data) {
+          if (sess.socket && sess.socket.readyState === WebSocket.OPEN)
+            sess.socket.send(data);
+        }
+
+        /* The backend's username/password auth loop reads one WebSocket text
+   frame as one keystroke (exact-matching "\r"/"\n"/"\x7f"). Sending an
+   entire pasted string as a single frame breaks that — e.g. a pasted
+   value containing "\n" never matches the submit check and gets typed
+   into the field as a literal character instead of ending it. Splitting
+   into one frame per character makes pasted input behave like fast
+   typing, which both the auth phase and the post-auth bash loop handle
+   correctly. */
+        function sendPasted(sess, text) {
+          if (!text) return;
+          for (const ch of text) send(sess, ch);
+        }
+
+        function sendResize(sess) {
           send(
+            sess,
             JSON.stringify({
               type: "resize",
-              cols: term.cols,
-              rows: term.rows,
+              cols: sess.term.cols,
+              rows: sess.term.rows,
             }),
           );
         }
 
-        function updateTitle(cwd) {
-          const label = cwd || "bash";
-          document.getElementById("tab1-label").textContent = label;
-          document.getElementById("titlebar-title").textContent =
-            label + " — Terminal";
-          document.title = label + " — Terminal";
+        function updateTabLabel(sess, label) {
+          sess.tabEl.querySelector(".tab-label").textContent = label || "bash";
+          if (
+            sess.pane.classList.contains("active") &&
+            !sess.tabEl.classList.contains("bell-flash")
+          ) {
+            document.getElementById("titlebar-title").textContent =
+              (label || "bash") + " — Terminal";
+            document.title = (label || "bash") + " — Terminal";
+          }
         }
 
-        function connect() {
-          socket = new WebSocket(proto + "//" + location.host + "/terminal/ws");
-          socket.onopen = () => {
-            term.write("\r\n\x1b[32;1mConnected\x1b[0m\r\n");
-            sendResize();
-          };
-          socket.onmessage = (e) => term.write(e.data);
-          socket.onclose = () => {
-            term.write(
-              "\r\n\x1b[31mDisconnected \xe2\x80\x94 reconnecting in 3s\xe2\x80\xa6\x1b[0m\r\n",
-            );
-            setTimeout(connect, 3000);
-          };
-          socket.onerror = () => socket.close();
+        function activateSession(id) {
+          sessions.forEach((s) => {
+            const isActive = s.id === id;
+            s.pane.classList.toggle("active", isActive);
+            s.tabEl.classList.toggle("active", isActive);
+          });
+          activeId = id;
+          const sess = sessions.find((s) => s.id === id);
+          if (sess) {
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                try {
+                  sess.fitAddon.fit();
+                } catch (_) {}
+                if (sess.socket) {
+                  sendResize(sess);
+                } else {
+                  /* First time this pane is shown — it's now sized
+                       correctly, so connect now and the initial resize
+                       sent on socket open will carry the real dimensions
+                       instead of xterm's 80x24 default. */
+                  connect(sess);
+                }
+                sess.term.focus();
+              });
+            });
+            const label = sess.tabEl.querySelector(".tab-label").textContent;
+            document.getElementById("titlebar-title").textContent =
+              label + " — Terminal";
+            document.title = label + " — Terminal";
+          }
         }
-        connect();
 
-        /* ─── Resize ─────────────────────────────────────────── */
-        new ResizeObserver(() => {
-          fitAddon.fit();
-          sendResize();
-        }).observe(document.getElementById("terminal-container"));
-        window.addEventListener("resize", () => {
-          fitAddon.fit();
-          sendResize();
-        });
+        function confirmCloseSession(id) {
+          const sess = sessions.find((s) => s.id === id);
+          const label = sess
+            ? sess.tabEl.querySelector(".tab-label").textContent
+            : "this tab";
+          const ok = window.confirm(
+            'Close "' +
+              label +
+              '"? The underlying tmux session keeps running in the ' +
+              'background unless you also end it manually (e.g. "exit" the shell first).',
+          );
+          if (ok) closeSession(id);
+        }
 
-        /* ─── Clipboard ──────────────────────────────────────── */
+        function closeSession(id) {
+          const idx = sessions.findIndex((s) => s.id === id);
+          if (idx === -1) return;
+          const sess = sessions[idx];
+
+          /* Mark closed first so reconnect logic / message handlers stop */
+          sess.closed = true;
+          clearTimeout(sess.reconnectTimer);
+
+          /* Tear down the actual client-side connection. The tmux session on the
+       server (if any) survives this — see backend terminate_process(). */
+          try {
+            if (sess.socket) {
+              if (sess.socket.readyState === WebSocket.OPEN) {
+                sess.socket.close(1000, "tab closed");
+              } else {
+                sess.socket.close();
+              }
+            }
+          } catch (_) {}
+
+          try {
+            sess.resizeObserver && sess.resizeObserver.disconnect();
+          } catch (_) {}
+          try {
+            sess.term.dispose();
+          } catch (_) {}
+          sess.pane.remove();
+          sess.tabEl.remove();
+
+          sessions.splice(idx, 1);
+          saveSidList();
+
+          if (sessions.length === 0) {
+            /* always keep at least one tab open */
+            const ns = makeSession();
+            activateSession(ns.id);
+            return;
+          }
+
+          if (activeId === id) {
+            const next = sessions[idx] || sessions[idx - 1] || sessions[0];
+            activateSession(next.id);
+          }
+        }
+
+        /* ─────────────────────────────────────────────────────────
+   Clipboard handling
+   readText() via the async Clipboard API is the primary path.
+   It works on https origins (and localhost) once permission is
+   granted. document.execCommand('paste') is deprecated/disabled
+   in current browsers and must not be relied on — instead we
+   fall back to a manual paste box that the user pastes into
+   with the OS shortcut, which always works regardless of
+   permissions or origin.
+   ──────────────────────────────────────────────────────── */
+        function clipboardApiAllowed(feature) {
+          try {
+            if (
+              document.featurePolicy &&
+              document.featurePolicy.allowsFeature
+            ) {
+              return document.featurePolicy.allowsFeature(feature);
+            }
+          } catch (_) {}
+          return true;
+        }
+        const CLIPBOARD_READ_OK = clipboardApiAllowed("clipboard-read");
+        const CLIPBOARD_WRITE_OK = clipboardApiAllowed("clipboard-write");
+
         async function clipWrite(text) {
-          if (isSecure && navigator.clipboard?.writeText) {
+          if (
+            CLIPBOARD_WRITE_OK &&
+            navigator.clipboard &&
+            navigator.clipboard.writeText
+          ) {
             try {
               await navigator.clipboard.writeText(text);
               return;
             } catch (_) {}
           }
-          const ta = Object.assign(document.createElement("textarea"), {
-            value: text,
-          });
-          Object.assign(ta.style, {
-            position: "fixed",
-            top: "-9999px",
-            opacity: "0",
-          });
-          document.body.appendChild(ta);
-          ta.select();
           try {
+            const ta = Object.assign(document.createElement("textarea"), {
+              value: text,
+            });
+            Object.assign(ta.style, {
+              position: "fixed",
+              top: "-9999px",
+              opacity: "0",
+            });
+            document.body.appendChild(ta);
+            ta.select();
             document.execCommand("copy");
+            document.body.removeChild(ta);
           } catch (_) {}
-          document.body.removeChild(ta);
         }
 
-        /* Paste overlay (keyboard shortcut fallback on HTTP) */
         const overlay = document.getElementById("paste-overlay");
         const pasteTA = document.getElementById("paste-textarea");
         let _pasteResolve = null;
@@ -502,7 +1320,6 @@
             _pasteResolve(t);
             _pasteResolve = null;
           }
-          term.focus();
         }
         document.getElementById("paste-cancel").onclick = () =>
           closePasteOverlay(false);
@@ -519,215 +1336,419 @@
           if (e.key === "Escape") closePasteOverlay(false);
         });
 
-        /* nativePaste — hidden textarea trick, works on HTTP without any dialog */
-        function nativePaste() {
-          return new Promise((res) => {
-            const ta = document.createElement("textarea");
-            Object.assign(ta.style, {
-              position: "fixed",
-              top: "-9999px",
-              left: "-9999px",
-              opacity: "0",
-              width: "2px",
-              height: "2px",
-              fontSize: "1px",
-            });
-            document.body.appendChild(ta);
-            ta.focus();
-            requestAnimationFrame(() => {
-              document.execCommand("paste");
-              const t = ta.value;
-              document.body.removeChild(ta);
-              term.focus();
-              res(t);
-            });
+        const pasteCatcher = document.createElement("div");
+        pasteCatcher.contentEditable = "true";
+        pasteCatcher.setAttribute("aria-hidden", "true");
+        Object.assign(pasteCatcher.style, {
+          position: "fixed",
+          top: "0",
+          left: "0",
+          width: "1px",
+          height: "1px",
+          opacity: "0",
+          overflow: "hidden",
+          pointerEvents: "none",
+        });
+        document.body.appendChild(pasteCatcher);
+
+        function captureNativePaste(timeoutMs) {
+          return new Promise((resolve) => {
+            let done = false;
+            const finish = (text) => {
+              if (done) return;
+              done = true;
+              pasteCatcher.removeEventListener("paste", onPaste);
+              resolve(text);
+            };
+            const onPaste = (e) => {
+              e.preventDefault();
+              const text = (e.clipboardData || window.clipboardData).getData(
+                "text",
+              );
+              finish(text || "");
+            };
+            pasteCatcher.addEventListener("paste", onPaste);
+            pasteCatcher.textContent = "";
+            pasteCatcher.focus();
+            setTimeout(() => finish(null), timeoutMs || 150);
           });
         }
 
-        /* clipRead — for keyboard shortcut paste; shows overlay on HTTP */
-        async function clipRead() {
-          if (isSecure && navigator.clipboard?.readText) {
+        async function clipRead(viaKeystroke) {
+          if (
+            CLIPBOARD_READ_OK &&
+            navigator.clipboard &&
+            navigator.clipboard.readText
+          ) {
             try {
-              return await navigator.clipboard.readText();
+              const t = await navigator.clipboard.readText();
+              if (t !== undefined && t !== null) return t;
             } catch (_) {}
+          }
+          if (viaKeystroke) {
+            const t = await captureNativePaste(200);
+            if (t !== null) return t;
           }
           return await showPasteOverlay();
         }
 
-        /* copySelection */
-        function copySelection() {
-          if (!term.hasSelection()) return false;
-          clipWrite(term.getSelection());
-          term.clearSelection();
+        function copySelection(sess) {
+          if (!sess.term.hasSelection()) return false;
+          clipWrite(sess.term.getSelection());
+          sess.term.clearSelection();
           return true;
         }
 
-        /* paste via keyboard shortcut */
-        async function paste() {
-          const t = await clipRead();
-          if (t) send(t);
+        async function paste(sess) {
+          const t = await clipRead(true);
+          if (t) sendPasted(sess, t);
+          sess.term.focus();
         }
 
-        /* pasteNow — right-click / middle-click; never shows overlay */
-        async function pasteNow() {
-          if (isSecure && navigator.clipboard?.readText) {
+        async function pasteNow(sess) {
+          const t = await clipRead(false);
+          if (t) sendPasted(sess, t);
+          sess.term.focus();
+        }
+
+        /* ─── Zoom helpers (apply to active session only) ───────── */
+        function zoomIn(sess) {
+          sess.term.options.fontSize = Math.min(
+            sess.term.options.fontSize + 1,
+            36,
+          );
+          sess.fitAddon.fit();
+        }
+        function zoomOut(sess) {
+          sess.term.options.fontSize = Math.max(
+            sess.term.options.fontSize - 1,
+            6,
+          );
+          sess.fitAddon.fit();
+        }
+        function zoomReset(sess) {
+          sess.term.options.fontSize = 14;
+          sess.fitAddon.fit();
+        }
+
+        /* ─── Tier 1: search bar (Ctrl+F) ────────────────────────── */
+        let searchBarEl = null;
+        function ensureSearchBar() {
+          if (searchBarEl) return searchBarEl;
+          const bar = document.createElement("div");
+          bar.id = "search-bar";
+          Object.assign(bar.style, {
+            position: "absolute",
+            top: "8px",
+            right: "12px",
+            zIndex: "500",
+            background: "#3c3c3c",
+            border: "1px solid #666",
+            borderRadius: "6px",
+            padding: "6px 8px",
+            display: "none",
+            alignItems: "center",
+            gap: "6px",
+            boxShadow: "0 6px 20px rgba(0,0,0,0.5)",
+            fontFamily: "'Ubuntu',sans-serif",
+          });
+          bar.innerHTML =
+            '<input id="search-input" type="text" placeholder="Find…" autocomplete="off" ' +
+            'style="background:#1e1e1e;border:1px solid #555;border-radius:4px;color:#e8e8e8;' +
+            'font-size:13px;padding:4px 8px;outline:none;width:160px;">' +
+            '<button id="search-prev" title="Previous (Shift+Enter)" style="background:#555;border:none;' +
+            'color:#e8e8e8;border-radius:4px;padding:4px 8px;cursor:pointer;">&#8593;</button>' +
+            '<button id="search-next" title="Next (Enter)" style="background:#555;border:none;' +
+            'color:#e8e8e8;border-radius:4px;padding:4px 8px;cursor:pointer;">&#8595;</button>' +
+            '<button id="search-close" title="Close (Esc)" style="background:transparent;border:none;' +
+            'color:#aaa;border-radius:4px;padding:4px 8px;cursor:pointer;">&#x2715;</button>';
+          container.appendChild(bar);
+          searchBarEl = bar;
+
+          const input = bar.querySelector("#search-input");
+          input.addEventListener("keydown", (e) => {
+            const sess = sessions.find((s) => s.id === activeId);
+            if (!sess) return;
+            if (e.key === "Enter") {
+              e.preventDefault();
+              const opts = { incremental: false };
+              if (e.shiftKey) sess.searchAddon.findPrevious(input.value, opts);
+              else sess.searchAddon.findNext(input.value, opts);
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              hideSearchBar();
+            }
+          });
+          input.addEventListener("input", () => {
+            const sess = sessions.find((s) => s.id === activeId);
+            if (!sess) return;
+            sess.searchAddon.findNext(input.value, { incremental: true });
+          });
+          bar.querySelector("#search-next").onclick = () => {
+            const sess = sessions.find((s) => s.id === activeId);
+            if (sess) sess.searchAddon.findNext(input.value);
+          };
+          bar.querySelector("#search-prev").onclick = () => {
+            const sess = sessions.find((s) => s.id === activeId);
+            if (sess) sess.searchAddon.findPrevious(input.value);
+          };
+          bar.querySelector("#search-close").onclick = hideSearchBar;
+          return bar;
+        }
+        function showSearchBar() {
+          const bar = ensureSearchBar();
+          bar.style.display = "flex";
+          const input = bar.querySelector("#search-input");
+          input.focus();
+          input.select();
+        }
+        function hideSearchBar() {
+          if (!searchBarEl) return;
+          searchBarEl.style.display = "none";
+          const sess = sessions.find((s) => s.id === activeId);
+          if (sess) sess.term.focus();
+        }
+        document
+          .getElementById("search-toggle-btn")
+          .addEventListener("click", showSearchBar);
+
+        /* ─── Tier 1: settings overlay (theme / font / cursor) ──── */
+        const settingsOverlay = document.getElementById("settings-overlay");
+        const swatchContainer = document.getElementById("theme-swatches");
+        const fontSelect = document.getElementById("font-select");
+        const cursorStyleSelect = document.getElementById(
+          "cursor-style-select",
+        );
+        const cursorBlinkToggle = document.getElementById(
+          "cursor-blink-toggle",
+        );
+
+        function buildSwatches() {
+          swatchContainer.innerHTML = "";
+          Object.keys(THEMES).forEach((themeId) => {
+            const t = THEMES[themeId];
+            const el = document.createElement("div");
+            el.className =
+              "theme-swatch" +
+              (themeId === settings.themeId ? " selected" : "");
+            el.style.background = t.bg;
+            el.style.color = t.theme.foreground;
+            el.dataset.themeId = themeId;
+            el.textContent = t.label;
+            el.addEventListener("click", () => {
+              settings.themeId = themeId;
+              saveSettings(settings);
+              applySettingsToAllSessions();
+              buildSwatches();
+            });
+            swatchContainer.appendChild(el);
+          });
+        }
+        function buildFontSelect() {
+          fontSelect.innerHTML = "";
+          FONTS.forEach((f) => {
+            const opt = document.createElement("option");
+            opt.value = f.value;
+            opt.textContent = f.label;
+            if (f.value === settings.font) opt.selected = true;
+            fontSelect.appendChild(opt);
+          });
+        }
+        fontSelect.addEventListener("change", () => {
+          settings.font = fontSelect.value;
+          saveSettings(settings);
+          applySettingsToAllSessions();
+        });
+        cursorStyleSelect.addEventListener("change", () => {
+          settings.cursorStyle = cursorStyleSelect.value;
+          saveSettings(settings);
+          applySettingsToAllSessions();
+        });
+        cursorBlinkToggle.addEventListener("change", () => {
+          settings.cursorBlink = cursorBlinkToggle.checked;
+          saveSettings(settings);
+          applySettingsToAllSessions();
+        });
+
+        function applySettingsToAllSessions() {
+          const themeDef = THEMES[settings.themeId] || THEMES.gnome;
+          sessions.forEach((s) => {
+            s.term.options.theme = themeDef.theme;
+            s.term.options.fontFamily = settings.font;
+            s.term.options.cursorStyle = settings.cursorStyle;
+            s.term.options.cursorBlink = settings.cursorBlink;
             try {
-              const t = await navigator.clipboard.readText();
-              if (t) {
-                send(t);
-                return;
-              }
+              s.fitAddon.fit();
             } catch (_) {}
-          }
-          const t = await nativePaste();
-          if (t) send(t);
+          });
         }
 
-        /* ─── Zoom helpers ───────────────────────────────────── */
-        function zoomIn() {
-          term.options.fontSize = Math.min(term.options.fontSize + 1, 36);
-          fitAddon.fit();
+        function openSettings() {
+          cursorStyleSelect.value = settings.cursorStyle;
+          cursorBlinkToggle.checked = settings.cursorBlink;
+          buildSwatches();
+          buildFontSelect();
+          settingsOverlay.classList.add("show");
         }
-        function zoomOut() {
-          term.options.fontSize = Math.max(term.options.fontSize - 1, 6);
-          fitAddon.fit();
+        function closeSettings() {
+          settingsOverlay.classList.remove("show");
         }
-        function zoomReset() {
-          term.options.fontSize = 14;
-          fitAddon.fit();
-        }
+        document
+          .getElementById("settings-btn")
+          .addEventListener("click", openSettings);
+        document
+          .getElementById("settings-close")
+          .addEventListener("click", closeSettings);
+        settingsOverlay.addEventListener("click", (e) => {
+          if (e.target === settingsOverlay) closeSettings();
+        });
 
-        /* ─── Keyboard handler ───────────────────────────────── */
-        term.attachCustomKeyEventHandler((e) => {
+        /* ─── Keyboard handler ───────────────────────────────────── */
+        function handleKey(sess, e) {
           if (e.type !== "keydown") return true;
 
-          const ctrl = e.ctrlKey;
+          const ctrl = e.ctrlKey || e.metaKey;
           const shift = e.shiftKey;
           const key = e.key.toLowerCase();
 
-          /* Copy — Ctrl+C only when text selected (else send SIGINT as normal) */
-          if (ctrl && !shift && key === "c" && term.hasSelection()) {
-            copySelection();
+          if (ctrl && !shift && key === "f") {
+            showSearchBar();
             e.preventDefault();
             return false;
           }
-          /* Ctrl+Shift+C */
+
+          if (ctrl && !shift && key === "c" && sess.term.hasSelection()) {
+            copySelection(sess);
+            e.preventDefault();
+            return false;
+          }
           if (ctrl && shift && key === "c") {
-            copySelection();
+            copySelection(sess);
             e.preventDefault();
             return false;
           }
-          /* Ctrl+Insert */
           if (ctrl && e.code === "Insert") {
-            copySelection();
+            copySelection(sess);
             e.preventDefault();
             return false;
           }
 
-          /* Paste — Ctrl+Shift+V */
           if (ctrl && shift && key === "v") {
-            paste();
+            paste(sess);
             e.preventDefault();
             return false;
           }
-          /* Shift+Insert */
           if (shift && e.code === "Insert") {
-            paste();
+            paste(sess);
+            e.preventDefault();
+            return false;
+          }
+          if (ctrl && !shift && key === "v") {
+            paste(sess);
             e.preventDefault();
             return false;
           }
 
-          /* Select all */
           if (ctrl && shift && key === "a") {
-            term.selectAll();
+            sess.term.selectAll();
             e.preventDefault();
             return false;
           }
 
-          /* New tab (visual only — open same WS in new browser tab) */
           if (ctrl && shift && key === "t") {
-            window.open(location.href, "_blank");
+            const ns = makeSession();
+            activateSession(ns.id);
+            e.preventDefault();
+            return false;
+          }
+          if (ctrl && shift && key === "w") {
+            confirmCloseSession(sess.id);
             e.preventDefault();
             return false;
           }
 
-          /* Clear */
           if (ctrl && shift && key === "k") {
-            term.clear();
+            sess.term.clear();
             e.preventDefault();
             return false;
           }
-          if (ctrl && key === "l") {
-            /* pass Ctrl+L through to bash (clear screen) but also clear xterm scrollback */
-            send("\x0c");
+          if (ctrl && !shift && key === "l") {
+            send(sess, "\x0c");
             e.preventDefault();
             return false;
           }
 
-          /* Zoom */
           if (ctrl && (e.key === "=" || e.key === "+")) {
-            zoomIn();
+            zoomIn(sess);
             e.preventDefault();
             return false;
           }
           if (ctrl && e.key === "-") {
-            zoomOut();
+            zoomOut(sess);
             e.preventDefault();
             return false;
           }
           if (ctrl && e.key === "0") {
-            zoomReset();
+            zoomReset(sess);
             e.preventDefault();
             return false;
           }
 
-          /* Scroll */
           if (ctrl && shift && e.key === "ArrowUp") {
-            term.scrollLines(-1);
+            sess.term.scrollLines(-1);
             e.preventDefault();
             return false;
           }
           if (ctrl && shift && e.key === "ArrowDown") {
-            term.scrollLines(1);
+            sess.term.scrollLines(1);
             e.preventDefault();
             return false;
           }
           if (ctrl && shift && e.key === "PageUp") {
-            term.scrollPages(-1);
+            sess.term.scrollPages(-1);
             e.preventDefault();
             return false;
           }
           if (ctrl && shift && e.key === "PageDown") {
-            term.scrollPages(1);
+            sess.term.scrollPages(1);
             e.preventDefault();
             return false;
           }
           if (ctrl && shift && e.key === "Home") {
-            term.scrollToTop();
+            sess.term.scrollToTop();
             e.preventDefault();
             return false;
           }
           if (ctrl && shift && e.key === "End") {
-            term.scrollToBottom();
+            sess.term.scrollToBottom();
+            e.preventDefault();
+            return false;
+          }
+
+          if (ctrl && key === "tab") {
+            const idx = sessions.findIndex((s) => s.id === sess.id);
+            const next = sessions[(idx + 1) % sessions.length];
+            if (next) activateSession(next.id);
             e.preventDefault();
             return false;
           }
 
           return true;
-        });
+        }
 
-        /* PTY input */
-        term.onData((d) => send(d));
-
-        /* ─── Context menu ───────────────────────────────────── */
+        /* ─── Context menu (tracks which session it was opened for) ─ */
         const ctxMenu = document.getElementById("ctx-menu");
+        let ctxSess = null;
 
-        function showMenu(x, y) {
-          const hasSel = term.hasSelection();
-          const copyEl = document.getElementById("ctx-copy");
-          const pasteSelEl = document.getElementById("ctx-paste-selection");
-          copyEl.classList.toggle("disabled", !hasSel);
-          pasteSelEl.classList.toggle("disabled", !hasSel);
+        function showMenu(sess, x, y) {
+          ctxSess = sess;
+          const hasSel = sess.term.hasSelection();
+          document
+            .getElementById("ctx-copy")
+            .classList.toggle("disabled", !hasSel);
+          document
+            .getElementById("ctx-paste-selection")
+            .classList.toggle("disabled", !hasSel);
 
           ctxMenu.style.display = "block";
           const mw = ctxMenu.offsetWidth || 220;
@@ -739,58 +1760,69 @@
           ctxMenu.style.display = "none";
         }
 
-        document.addEventListener("click", hideMenu);
+        document.addEventListener("click", (e) => {
+          if (!ctxMenu.contains(e.target)) hideMenu();
+        });
         document.addEventListener("keydown", (e) => {
           if (e.key === "Escape") hideMenu();
-        });
-        term.element.addEventListener("contextmenu", (e) => {
-          e.preventDefault();
-          showMenu(e.clientX, e.clientY);
         });
 
         function menuAction(id, fn) {
           document.getElementById(id).addEventListener("click", async (e) => {
             e.stopPropagation();
             hideMenu();
-            await fn();
-            term.focus();
+            if (ctxSess) await fn(ctxSess);
+            if (ctxSess) ctxSess.term.focus();
           });
         }
 
         menuAction("ctx-open-tab", () => {
-          window.open(location.href, "_blank");
+          const ns = makeSession();
+          activateSession(ns.id);
         });
-        menuAction("ctx-copy", () => copySelection());
-        menuAction("ctx-paste", () => pasteNow());
-        menuAction("ctx-paste-selection", () => {
-          /* Paste Selection = paste what is currently selected in terminal */
-          if (term.hasSelection()) send(term.getSelection());
+        menuAction("ctx-copy", (sess) => copySelection(sess));
+        menuAction("ctx-paste", (sess) => pasteNow(sess));
+        menuAction("ctx-paste-selection", (sess) => {
+          if (sess.term.hasSelection())
+            sendPasted(sess, sess.term.getSelection());
         });
-        menuAction("ctx-select-all", () => term.selectAll());
-        menuAction("ctx-clear", () => {
-          term.reset();
-          send("\x0c");
+        menuAction("ctx-select-all", (sess) => sess.term.selectAll());
+        menuAction("ctx-find", () => showSearchBar());
+        menuAction("ctx-clear", (sess) => {
+          sess.term.reset();
+          send(sess, "\x0c");
         });
-        menuAction("ctx-zoom-in", () => zoomIn());
-        menuAction("ctx-zoom-out", () => zoomOut());
-        menuAction("ctx-zoom-reset", () => zoomReset());
+        menuAction("ctx-zoom-in", (sess) => zoomIn(sess));
+        menuAction("ctx-zoom-out", (sess) => zoomOut(sess));
+        menuAction("ctx-zoom-reset", (sess) => zoomReset(sess));
+        menuAction("ctx-settings", () => openSettings());
 
-        /* ─── Middle-click paste ─────────────────────────────── */
-        term.element.addEventListener("mousedown", async (e) => {
-          if (e.button !== 1) return;
-          e.preventDefault();
-          await pasteNow();
+        /* ─── New tab button ─────────────────────────────────────── */
+        tabNewBtn.addEventListener("click", () => {
+          const ns = makeSession();
+          activateSession(ns.id);
         });
 
-        /* ─── Click → focus ──────────────────────────────────── */
-        term.element.addEventListener("click", (e) => {
-          if (!ctxMenu.contains(e.target)) {
-            hideMenu();
-            term.focus();
+        /* ─── Global resize fallback ─────────────────────────────── */
+        window.addEventListener("resize", () => {
+          const sess = sessions.find((s) => s.id === activeId);
+          if (sess) {
+            try {
+              sess.fitAddon.fit();
+            } catch (_) {}
+            sendResize(sess);
           }
         });
 
-        /* ─── Titlebar buttons (cosmetic) ───────────────────── */
+        /* ─── Warn before closing the browser tab/window ────────── */
+        window.addEventListener("beforeunload", (e) => {
+          if (sessions.length === 0) return;
+          e.preventDefault();
+          e.returnValue = "";
+          return "";
+        });
+
+        /* ─── Titlebar buttons (cosmetic) ───────────────────────── */
         document.querySelector(".wc-close").onclick = () => window.close();
         document.querySelector(".wc-minimize").onclick = () => {};
         document.querySelector(".wc-maximize").onclick = () => {
@@ -798,6 +1830,19 @@
             document.documentElement.requestFullscreen?.();
           else document.exitFullscreen?.();
         };
+
+        /* ─── Boot: restore previous tmux-backed sessions if any, else first ──── */
+        const savedSids = loadSidList();
+        let first;
+        if (savedSids.length > 0) {
+          savedSids.forEach((sid, i) => {
+            const s = makeSession(sid);
+            if (i === 0) first = s;
+          });
+        } else {
+          first = makeSession();
+        }
+        activateSession(first.id);
       })();
     </script>
   </body>
