@@ -1,42 +1,40 @@
-from dotenv import load_dotenv
-load_dotenv()
-
-import os
-import re
-import time
-import uuid
-import base64
-import hmac
-import struct
-import secrets
-import sqlite3
-import asyncio
-import json
-import signal
-import fcntl
-import termios
-import select
-import shutil
-import hashlib
-import subprocess
-import logging
-
-import uvicorn
+from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.responses import HTMLResponse, PlainTextResponse, FileResponse, JSONResponse
 from fastapi import (
     FastAPI, WebSocket, WebSocketDisconnect, Request, Depends, Header,
     HTTPException, UploadFile, File, Form
 )
-from fastapi.responses import HTMLResponse, PlainTextResponse, FileResponse
-from starlette.middleware.base import BaseHTTPMiddleware
-from pydantic import BaseModel
+import uvicorn
+import io
+import qrcode
+import logging
+import subprocess
+import hashlib
+import shutil
+import select
+import termios
+import fcntl
+import signal
+import json
+import asyncio
+import sqlite3
+import secrets
+import struct
+import hmac
+import base64
+import uuid
+import time
+import re
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("terminal")
 
-# TERMINAL_USERNAME/PASSWORD are used ONLY to bootstrap the first admin
-# account in the database on first run. They are never used for runtime
-# authentication -- all login happens through the session/token system
-# below. Once a real admin account exists, you can unset these.
 TERMINAL_USERNAME = os.getenv("TERMINAL_USERNAME", "")
 TERMINAL_PASSWORD = os.getenv("TERMINAL_PASSWORD", "")
 
@@ -53,10 +51,9 @@ USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 TMUX_BIN = shutil.which("tmux")
 SSH_BIN = shutil.which("ssh")
 
-# ===========================================================================
-# Storage: SQLite (no external DB service required)
-# ===========================================================================
-WEBTERM_DB = os.getenv("WEBTERM_DB", os.path.join(os.path.dirname(__file__), "webterm.db"))
+WEBTERM_DB = os.getenv("WEBTERM_DB", os.path.join(
+    os.path.dirname(__file__), "webterm.db"))
+WEBTERM_MAX_UPLOAD_MB = int(os.getenv("WEBTERM_MAX_UPLOAD_MB", "100"))
 
 
 def get_db() -> sqlite3.Connection:
@@ -86,6 +83,29 @@ def init_db():
         ssh_username TEXT NOT NULL,
         created_at REAL NOT NULL
     )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS revoked_tokens(
+        token TEXT PRIMARY KEY NOT NULL,
+        revoked_at REAL NOT NULL
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS audit_log(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        event TEXT NOT NULL,
+        ip TEXT NOT NULL,
+        detail TEXT,
+        created_at REAL NOT NULL
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS session_stats(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        sid TEXT NOT NULL,
+        target TEXT NOT NULL,
+        ip TEXT NOT NULL,
+        started_at REAL NOT NULL,
+        ended_at REAL,
+        bytes_in INTEGER NOT NULL DEFAULT 0,
+        bytes_out INTEGER NOT NULL DEFAULT 0
+    )""")
     conn.commit()
     n = conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]
     if n == 0 and TERMINAL_USERNAME and TERMINAL_PASSWORD:
@@ -95,18 +115,17 @@ def init_db():
             (TERMINAL_USERNAME, h, s, time.time()),
         )
         conn.commit()
-        log.info("Bootstrapped initial admin user '%s'. You can unset "
-                  "TERMINAL_USERNAME/PASSWORD now -- they are not used again.", TERMINAL_USERNAME)
+        log.info("Bootstrapped initial admin user '%s'.", TERMINAL_USERNAME)
     elif n == 0:
-        log.warning("No users exist and TERMINAL_USERNAME/PASSWORD are unset -- "
-                    "no one can log in until a user row is created directly in the DB.")
+        log.warning("No users exist and TERMINAL_USERNAME/PASSWORD are unset.")
     conn.close()
 
 
 def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
     if salt is None:
         salt = secrets.token_hex(16)
-    h = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 200_000).hex()
+    h = hashlib.pbkdf2_hmac("sha256", password.encode(
+        "utf-8"), salt.encode("utf-8"), 200_000).hex()
     return h, salt
 
 
@@ -117,13 +136,27 @@ def verify_password(password: str, pw_hash: str, pw_salt: str) -> bool:
 
 def get_user_row(username: str):
     conn = get_db()
-    row = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+    row = conn.execute("SELECT * FROM users WHERE username=?",
+                       (username,)).fetchone()
     conn.close()
     return row
 
 
+def audit(username: str, event: str, ip: str, detail: str = ""):
+    try:
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO audit_log(username,event,ip,detail,created_at) VALUES (?,?,?,?,?)",
+            (username, event, ip, detail, time.time())
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
 # ===========================================================================
-# TOTP (RFC 6238) -- pure stdlib
+# TOTP (RFC 6238)
 # ===========================================================================
 def totp_new_secret() -> str:
     return base64.b32encode(secrets.token_bytes(20)).decode("utf-8").rstrip("=")
@@ -150,38 +183,56 @@ def verify_totp(secret_b32: str, code: str, window: int = 1, period: int = 30) -
     return False
 
 
+def generate_totp_qr(username: str, secret: str) -> str:
+    """Generate a base64-encoded PNG QR code for the TOTP URI."""
+    uri = f"otpauth://totp/WebTerminal:{username}?secret={secret}&issuer=WebTerminal"
+    qr = qrcode.QRCode(version=1, box_size=6, border=3)
+    qr.add_data(uri)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    return f"data:image/png;base64,{b64}", uri
+
+
 # ===========================================================================
-# Signed bearer tokens (session-only auth -- this is THE auth mechanism now,
-# for the page, the REST API, and the terminal websocket alike)
+# Signed bearer tokens
 # ===========================================================================
 SERVER_SECRET = os.getenv("WEBTERM_SECRET") or secrets.token_hex(32)
 if not os.getenv("WEBTERM_SECRET"):
-    log.warning("WEBTERM_SECRET not set -- using a random per-process secret. "
-                "All sessions are invalidated on restart. Set WEBTERM_SECRET "
-                "in production so logins survive restarts/redeploys.")
+    log.warning("WEBTERM_SECRET not set -- sessions invalidated on restart.")
+
 TOKEN_TTL_SECONDS = 12 * 3600
 
-# In-memory revocation list, checked on every token verification so Logout
-# takes effect immediately even though tokens are otherwise stateless.
-# Production note: for a multi-process/multi-host deployment this should be
-# a shared store (Redis, DB table) instead of an in-process set.
-REVOKED_TOKENS: set[str] = set()
+
+def _is_token_revoked(token: str) -> bool:
+    try:
+        conn = get_db()
+        row = conn.execute(
+            "SELECT 1 FROM revoked_tokens WHERE token=?", (token,)).fetchone()
+        conn.close()
+        return row is not None
+    except Exception:
+        return False
 
 
 def issue_token(username: str, is_admin: bool) -> str:
     exp = int(time.time()) + TOKEN_TTL_SECONDS
     payload = f"{username}|{int(is_admin)}|{exp}"
-    sig = hmac.new(SERVER_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    sig = hmac.new(SERVER_SECRET.encode(), payload.encode(),
+                   hashlib.sha256).hexdigest()
     return base64.urlsafe_b64encode((payload + "|" + sig).encode()).decode()
 
 
 def verify_token(token: str):
-    if not token or token in REVOKED_TOKENS:
+    if not token or _is_token_revoked(token):
         return None
     try:
         raw = base64.urlsafe_b64decode(token.encode()).decode()
         username, is_admin, exp, sig = raw.split("|")
-        expected = hmac.new(SERVER_SECRET.encode(), f"{username}|{is_admin}|{exp}".encode(), hashlib.sha256).hexdigest()
+        expected = hmac.new(SERVER_SECRET.encode(
+        ), f"{username}|{is_admin}|{exp}".encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(sig, expected):
             return None
         if int(exp) < time.time():
@@ -207,7 +258,7 @@ async def require_admin(user=Depends(get_current_user)):
 
 
 # ===========================================================================
-# In-memory active-session registry + metrics
+# Active sessions + metrics
 # ===========================================================================
 ACTIVE_SESSIONS: dict[str, dict] = {}
 METRICS = {
@@ -221,7 +272,6 @@ app = FastAPI()
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    """Baseline security headers for production deployments."""
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -234,44 +284,34 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 app.add_middleware(SecurityHeadersMiddleware)
 
 
+@app.get("/")
+async def root():
+    return HTMLResponse('<script>location.replace("/terminal")</script>')
+
+
 @app.get("/terminal")
 async def home():
-    with open("templates/terminal.html", "rb") as f:
-        html = f.read().decode("utf-8", errors="replace")
-    return HTMLResponse(html)
-
-
-@app.get("/admin")
-async def admin_page():
-    with open("templates/admin.html", "rb") as f:
+    with open(os.path.join(os.path.dirname(__file__), "templates", "terminal.html"), "rb") as f:
         html = f.read().decode("utf-8", errors="replace")
     return HTMLResponse(html)
 
 
 @app.get("/metrics")
-async def metrics():
+async def metrics(user=Depends(get_current_user)):
+    if not user["is_admin"]:
+        raise HTTPException(403, "Admin only")
     lines = [
-        "# HELP webterm_sessions_opened_total Total PTY sessions opened since start",
-        "# TYPE webterm_sessions_opened_total counter",
         f"webterm_sessions_opened_total {METRICS['sessions_opened_total']}",
-        "# HELP webterm_sessions_active Currently active PTY sessions",
-        "# TYPE webterm_sessions_active gauge",
         f"webterm_sessions_active {len(ACTIVE_SESSIONS)}",
-        "# HELP webterm_auth_failures_total Total failed login attempts",
-        "# TYPE webterm_auth_failures_total counter",
         f"webterm_auth_failures_total {METRICS['auth_failures_total']}",
-        "# HELP webterm_bytes_in_total Total bytes written into PTYs (keystrokes)",
-        "# TYPE webterm_bytes_in_total counter",
         f"webterm_bytes_in_total {METRICS['bytes_in_total']}",
-        "# HELP webterm_bytes_out_total Total bytes read from PTYs (output)",
-        "# TYPE webterm_bytes_out_total counter",
         f"webterm_bytes_out_total {METRICS['bytes_out_total']}",
     ]
     return PlainTextResponse("\n".join(lines) + "\n")
 
 
 # ===========================================================================
-# REST API
+# Auth helpers
 # ===========================================================================
 class LoginRequest(BaseModel):
     username: str
@@ -290,6 +330,16 @@ class CreateUserRequest(BaseModel):
     username: str
     password: str
     is_admin: bool = False
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class RenameFileRequest(BaseModel):
+    old_path: str
+    new_name: str
 
 
 def client_ip_req(request: Request) -> str:
@@ -320,7 +370,8 @@ def record_auth_failure(ip: str):
     fails[:] = [t for t in fails if t > cutoff]
     if len(fails) >= MAX_AUTH_FAILURES:
         _lockout_until[ip] = now + LOCKOUT_SECONDS
-        log.warning("IP %s locked out after %d failed auth attempts", ip, len(fails))
+        log.warning(
+            "IP %s locked out after %d failed auth attempts", ip, len(fails))
 
 
 def record_auth_success(ip: str):
@@ -332,19 +383,16 @@ def check_login(username: str, password: str, totp: str | None, ip: str):
     remaining = is_locked_out(ip)
     if remaining > 0:
         return False, f"Too many failed attempts. Try again in {int(remaining)}s.", None
-
     row = get_user_row(username)
     if not row or not verify_password(password, row["pw_hash"], row["pw_salt"]):
         record_auth_failure(ip)
         return False, "Authentication failed.", None
-
     if row["totp_secret"]:
         if not totp:
             return False, "TOTP_REQUIRED", None
         if not verify_totp(row["totp_secret"], totp):
             record_auth_failure(ip)
             return False, "Invalid authenticator code.", None
-
     record_auth_success(ip)
     return True, "ok", row
 
@@ -356,47 +404,83 @@ async def api_login(req: LoginRequest, request: Request):
     if not ok:
         raise HTTPException(401, reason)
     token = issue_token(row["username"], bool(row["is_admin"]))
+    audit(row["username"], "login", ip)
     return {"token": token, "is_admin": bool(row["is_admin"]), "username": row["username"]}
 
 
 @app.post("/api/logout")
-async def api_logout(authorization: str = Header(default="")):
+async def api_logout(request: Request, authorization: str = Header(default="")):
     if authorization.startswith("Bearer "):
-        REVOKED_TOKENS.add(authorization[7:])
+        t = authorization[7:]
+        info = verify_token(t)
+        conn = get_db()
+        conn.execute(
+            "INSERT OR IGNORE INTO revoked_tokens(token,revoked_at) VALUES (?,?)", (t, time.time()))
+        conn.commit()
+        conn.close()
+        if info:
+            audit(info["username"], "logout", client_ip_req(request))
     return {"ok": True}
 
 
 @app.get("/api/me")
 async def api_me(user=Depends(get_current_user)):
-    return user
+    row = get_user_row(user["username"])
+    return {
+        "username": user["username"],
+        "is_admin": user["is_admin"],
+        "has_totp": bool(row["totp_secret"]) if row else False,
+    }
+
+
+@app.post("/api/me/password")
+async def change_password(req: ChangePasswordRequest, user=Depends(get_current_user), request: Request = None):
+    row = get_user_row(user["username"])
+    if not row or not verify_password(req.current_password, row["pw_hash"], row["pw_salt"]):
+        raise HTTPException(400, "Current password is incorrect")
+    if len(req.new_password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+    h, s = hash_password(req.new_password)
+    conn = get_db()
+    conn.execute("UPDATE users SET pw_hash=?,pw_salt=? WHERE username=?",
+                 (h, s, user["username"]))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
 
 
 @app.post("/api/me/totp/enable")
 async def totp_enable(user=Depends(get_current_user)):
     secret = totp_new_secret()
     conn = get_db()
-    conn.execute("UPDATE users SET totp_secret=? WHERE username=?", (secret, user["username"]))
+    conn.execute("UPDATE users SET totp_secret=? WHERE username=?",
+                 (secret, user["username"]))
     conn.commit()
     conn.close()
-    uri = f"otpauth://totp/WebTerminal:{user['username']}?secret={secret}&issuer=WebTerminal"
-    return {"secret": secret, "otpauth_uri": uri}
+    qr_data, uri = generate_totp_qr(user["username"], secret)
+    return {"secret": secret, "otpauth_uri": uri, "qr_code": qr_data}
 
 
 @app.post("/api/me/totp/disable")
 async def totp_disable(user=Depends(get_current_user)):
     conn = get_db()
-    conn.execute("UPDATE users SET totp_secret=NULL WHERE username=?", (user["username"],))
+    conn.execute(
+        "UPDATE users SET totp_secret=NULL WHERE username=?", (user["username"],))
     conn.commit()
     conn.close()
     return {"ok": True}
 
 
+# ===========================================================================
+# Profiles
+# ===========================================================================
 @app.get("/api/profiles")
 async def list_profiles(user=Depends(get_current_user)):
     row = get_user_row(user["username"])
     conn = get_db()
     rows = conn.execute(
-        "SELECT id,name,host,port,ssh_username FROM profiles WHERE user_id=? ORDER BY name", (row["id"],)
+        "SELECT id,name,host,port,ssh_username FROM profiles WHERE user_id=? ORDER BY name", (
+            row["id"],)
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -410,7 +494,8 @@ async def create_profile(p: ProfileRequest, user=Depends(get_current_user)):
     conn = get_db()
     cur = conn.execute(
         "INSERT INTO profiles(user_id,name,host,port,ssh_username,created_at) VALUES (?,?,?,?,?,?)",
-        (row["id"], p.name.strip()[:128], p.host.strip()[:255], int(p.port), p.ssh_username.strip()[:128], time.time()),
+        (row["id"], p.name.strip()[:128], p.host.strip()[:255],
+         int(p.port), p.ssh_username.strip()[:128], time.time()),
     )
     conn.commit()
     pid = cur.lastrowid
@@ -422,15 +507,28 @@ async def create_profile(p: ProfileRequest, user=Depends(get_current_user)):
 async def delete_profile(profile_id: int, user=Depends(get_current_user)):
     row = get_user_row(user["username"])
     conn = get_db()
-    conn.execute("DELETE FROM profiles WHERE id=? AND user_id=?", (profile_id, row["id"]))
+    conn.execute("DELETE FROM profiles WHERE id=? AND user_id=?",
+                 (profile_id, row["id"]))
     conn.commit()
     conn.close()
     return {"ok": True}
 
 
+# ===========================================================================
+# Admin
+# ===========================================================================
 @app.get("/api/admin/sessions")
 async def admin_sessions(_=Depends(require_admin)):
     return list(ACTIVE_SESSIONS.values())
+
+
+@app.delete("/api/admin/sessions/{conn_id}")
+async def admin_kill_session(conn_id: str, _=Depends(require_admin)):
+    sess = ACTIVE_SESSIONS.get(conn_id)
+    if not sess:
+        raise HTTPException(404, "Session not found")
+    sess["_kill"] = True
+    return {"ok": True}
 
 
 @app.get("/api/admin/users")
@@ -467,7 +565,7 @@ async def admin_create_user(req: CreateUserRequest, _=Depends(require_admin)):
 @app.delete("/api/admin/users/{username}")
 async def admin_delete_user(username: str, admin=Depends(require_admin)):
     if username == admin["username"]:
-        raise HTTPException(400, "Cannot delete your own account while logged in as it")
+        raise HTTPException(400, "Cannot delete your own account")
     conn = get_db()
     conn.execute("DELETE FROM users WHERE username=?", (username,))
     conn.commit()
@@ -475,11 +573,43 @@ async def admin_delete_user(username: str, admin=Depends(require_admin)):
     return {"ok": True}
 
 
-# --- File manager: sandboxed per-user directory on the server's local disk.
-# Browse/upload/download/mkdir/delete with path-traversal protection. This is
-# NOT a remote SFTP client against your SSH targets (that needs paramiko/
-# asyncssh, a dependency intentionally left out -- see project notes).
-FILES_ROOT = os.path.abspath(os.getenv("WEBTERM_FILES_ROOT", os.path.join(os.path.dirname(__file__), "webterm-files")))
+@app.get("/api/admin/audit")
+async def admin_audit(_=Depends(require_admin), limit: int = 100):
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT username,event,ip,detail,created_at FROM audit_log ORDER BY created_at DESC LIMIT ?",
+        (limit,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/admin/metrics")
+async def admin_metrics(_=Depends(require_admin)):
+    conn = get_db()
+    locked_count = len(
+        [ip for ip, until in _lockout_until.items() if until > time.time()])
+    revoked_count = conn.execute(
+        "SELECT COUNT(*) c FROM revoked_tokens").fetchone()["c"]
+    totp_count = conn.execute(
+        "SELECT COUNT(*) c FROM users WHERE totp_secret IS NOT NULL").fetchone()["c"]
+    user_count = conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]
+    conn.close()
+    return {
+        **METRICS,
+        "active_sessions": len(ACTIVE_SESSIONS),
+        "locked_ips": locked_count,
+        "revoked_tokens": revoked_count,
+        "totp_enabled_users": totp_count,
+        "total_users": user_count,
+    }
+
+
+# ===========================================================================
+# File manager
+# ===========================================================================
+FILES_ROOT = os.path.abspath(os.getenv("WEBTERM_FILES_ROOT", os.path.join(
+    os.path.dirname(__file__), "webterm-files")))
 os.makedirs(FILES_ROOT, exist_ok=True)
 
 
@@ -509,7 +639,8 @@ async def list_files(path: str = "", user=Depends(get_current_user)):
         full = os.path.join(target, name)
         try:
             st = os.stat(full)
-            entries.append({"name": name, "is_dir": os.path.isdir(full), "size": st.st_size, "mtime": st.st_mtime})
+            entries.append({"name": name, "is_dir": os.path.isdir(
+                full), "size": st.st_size, "mtime": st.st_mtime})
         except OSError:
             continue
     return {"path": path, "entries": entries}
@@ -517,8 +648,6 @@ async def list_files(path: str = "", user=Depends(get_current_user)):
 
 @app.get("/api/files/download")
 async def download_file(path: str, token: str = "", authorization: str = Header(default="")):
-    # Browsers can't set Authorization headers on plain navigations/<a> clicks,
-    # so downloads also accept a short-lived token via query string.
     auth = verify_token(token) if token else None
     if not auth and authorization.startswith("Bearer "):
         auth = verify_token(authorization[7:])
@@ -531,19 +660,49 @@ async def download_file(path: str, token: str = "", authorization: str = Header(
     return FileResponse(target, filename=os.path.basename(target))
 
 
+@app.get("/api/files/preview")
+async def preview_file(path: str, token: str = "", authorization: str = Header(default="")):
+    auth = verify_token(token) if token else None
+    if not auth and authorization.startswith("Bearer "):
+        auth = verify_token(authorization[7:])
+    if not auth:
+        raise HTTPException(401, "Invalid or expired session")
+    root = user_root(auth["username"])
+    target = safe_join(root, path)
+    if not os.path.isfile(target):
+        raise HTTPException(404, "File not found")
+    size = os.path.getsize(target)
+    if size > 512 * 1024:
+        raise HTTPException(400, "File too large to preview (max 512 KB)")
+    try:
+        with open(target, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read(8192)
+        return {"content": content, "truncated": size > 8192}
+    except Exception:
+        raise HTTPException(400, "Cannot preview this file type")
+
+
 @app.post("/api/files/upload")
 async def upload_file(path: str = Form(""), file: UploadFile = File(...), user=Depends(get_current_user)):
     root = user_root(user["username"])
     target_dir = safe_join(root, path)
     os.makedirs(target_dir, exist_ok=True)
     dest = safe_join(target_dir, os.path.basename(file.filename))
+    size = 0
+    max_bytes = WEBTERM_MAX_UPLOAD_MB * 1024 * 1024
     with open(dest, "wb") as out:
         while True:
             chunk = await file.read(1024 * 1024)
             if not chunk:
                 break
+            size += len(chunk)
+            if size > max_bytes:
+                out.close()
+                os.remove(dest)
+                raise HTTPException(
+                    400, f"File exceeds {WEBTERM_MAX_UPLOAD_MB} MB limit")
             out.write(chunk)
-    return {"ok": True}
+    return {"ok": True, "size": size}
 
 
 @app.post("/api/files/mkdir")
@@ -551,6 +710,24 @@ async def mkdir(path: str = Form(...), user=Depends(get_current_user)):
     root = user_root(user["username"])
     target = safe_join(root, path)
     os.makedirs(target, exist_ok=True)
+    return {"ok": True}
+
+
+@app.post("/api/files/rename")
+async def rename_file(req: RenameFileRequest, user=Depends(get_current_user)):
+    root = user_root(user["username"])
+    src = safe_join(root, req.old_path)
+    parent = os.path.dirname(src)
+    new_name = os.path.basename(req.new_name)
+    if not new_name or "/" in new_name or "\\" in new_name:
+        raise HTTPException(400, "Invalid name")
+    dst = safe_join(root, os.path.join(
+        os.path.relpath(parent, root), new_name))
+    if not os.path.exists(src):
+        raise HTTPException(404, "Not found")
+    if os.path.exists(dst):
+        raise HTTPException(400, "A file with that name already exists")
+    os.rename(src, dst)
     return {"ok": True}
 
 
@@ -573,7 +750,7 @@ async def delete_file(path: str, user=Depends(get_current_user)):
 
 
 # ===========================================================================
-# Terminal/PTY plumbing
+# PTY plumbing
 # ===========================================================================
 def is_resize(raw: str):
     if not raw.startswith("{"):
@@ -585,6 +762,15 @@ def is_resize(raw: str):
     except Exception:
         pass
     return None
+
+
+def is_ping(raw: str):
+    if not raw.startswith("{"):
+        return False
+    try:
+        return json.loads(raw).get("type") == "ping"
+    except Exception:
+        return False
 
 
 def set_winsize(fd: int, rows: int, cols: int):
@@ -606,46 +792,32 @@ def client_ip(websocket: WebSocket) -> str:
 
 
 def spawn_shell(rows: int = 24, cols: int = 80, sid: str | None = None, ssh_target: dict | None = None):
-    """Open a PTY and spawn a shell attached to it.
-
-    - Local mode: tmux-wrapped bash, when tmux + sid present, so the session
-      survives a dropped websocket/tab close.
-    - SSH mode: tmux-wrapped `ssh user@host -p port`. The remote system's own
-      login prompt (password or key passphrase) happens interactively inside
-      this PTY exactly like a normal terminal SSH session -- this app never
-      sees or stores that credential.
-    Returns (master_fd, proc).
-    """
     master_fd, slave_fd = os.openpty()
-
     env = os.environ.copy()
     env["TERM"] = "xterm-256color"
     env["COLORTERM"] = "truecolor"
     env.setdefault("LANG", "en_US.UTF-8")
-
     valid_sid = bool(sid and SID_RE.match(sid))
-
     if ssh_target and SSH_BIN:
-        ssh_cmd = [SSH_BIN, "-p", str(int(ssh_target["port"])), f"{ssh_target['ssh_username']}@{ssh_target['host']}"]
+        ssh_cmd = [SSH_BIN, "-p", str(int(ssh_target["port"])),
+                   f"{ssh_target['ssh_username']}@{ssh_target['host']}"]
         if TMUX_BIN and valid_sid:
-            cmd = [TMUX_BIN, "new-session", "-A", "-s", f"web-ssh-{sid}"] + ssh_cmd
+            cmd = [TMUX_BIN, "new-session", "-A",
+                   "-s", f"web-ssh-{sid}"] + ssh_cmd
         else:
             cmd = ssh_cmd
     elif TMUX_BIN and valid_sid:
         cmd = [TMUX_BIN, "new-session", "-A", "-s", f"web-{sid}"]
     else:
         cmd = ["/bin/bash", "--login"]
-
     proc = subprocess.Popen(
         cmd, stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
         close_fds=True, env=env, preexec_fn=os.setsid,
     )
     os.close(slave_fd)
     set_winsize(master_fd, rows, cols)
-
     flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
     fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-
     return master_fd, proc
 
 
@@ -656,8 +828,23 @@ def _wait_readable(fd: int, proc: subprocess.Popen):
             return
 
 
+# PTY output batching: collect chunks for up to 16ms then flush as one frame
 async def pump_pty_to_socket(master_fd: int, proc: subprocess.Popen, websocket: WebSocket):
     loop = asyncio.get_event_loop()
+    buf = bytearray()
+    last_flush = loop.time()
+    BATCH_MS = 0.016
+
+    async def flush():
+        nonlocal buf, last_flush
+        if buf:
+            try:
+                await websocket.send_text(buf.decode("utf-8", errors="replace"))
+            except Exception:
+                pass
+            buf = bytearray()
+        last_flush = loop.time()
+
     try:
         while True:
             await loop.run_in_executor(None, _wait_readable, master_fd, proc)
@@ -668,14 +855,19 @@ async def pump_pty_to_socket(master_fd: int, proc: subprocess.Popen, websocket: 
             if not data:
                 break
             METRICS["bytes_out_total"] += len(data)
-            try:
-                await websocket.send_text(data.decode("utf-8", errors="replace"))
-            except Exception:
-                break
+            buf.extend(data)
+
+            # Peek (0-timeout, non-blocking): anything else already queued?
+            more_pending, _, _ = select.select([master_fd], [], [], 0)
+            now = loop.time()
+            if not more_pending or now - last_flush >= BATCH_MS or len(buf) > 32768:
+                await flush()
     except asyncio.CancelledError:
         pass
     except Exception:
         log.exception("PTY reader error")
+    finally:
+        await flush()
 
 
 def terminate_process(proc: subprocess.Popen, kill_session: bool):
@@ -683,7 +875,8 @@ def terminate_process(proc: subprocess.Popen, kill_session: bool):
         pgid = os.getpgid(proc.pid)
     except ProcessLookupError:
         return
-    sigs = (signal.SIGHUP, signal.SIGTERM, signal.SIGKILL) if kill_session else (signal.SIGHUP,)
+    sigs = (signal.SIGHUP, signal.SIGTERM,
+            signal.SIGKILL) if kill_session else (signal.SIGHUP,)
     for sig in sigs:
         try:
             os.killpg(pgid, sig)
@@ -702,6 +895,15 @@ def terminate_process(proc: subprocess.Popen, kill_session: bool):
             pass
 
 
+def is_ctrl_type(raw: str):
+    if not raw.startswith("{"):
+        return None
+    try:
+        return json.loads(raw).get("type")
+    except Exception:
+        return None
+
+
 @app.websocket("/terminal/ws")
 async def terminal(websocket: WebSocket):
     await websocket.accept()
@@ -709,9 +911,6 @@ async def terminal(websocket: WebSocket):
     token = websocket.query_params.get("token", "")
     auth = verify_token(token)
     if not auth:
-        # No in-band login prompt anymore -- the session token (obtained via
-        # POST /api/login before the page ever opens a socket) is the only
-        # way in. Reject immediately; nothing is spawned.
         try:
             await websocket.close(code=4401)
         except Exception:
@@ -737,29 +936,69 @@ async def terminal(websocket: WebSocket):
         try:
             pid = int(profile_id_raw)
             conn = get_db()
-            prow = conn.execute("SELECT * FROM profiles WHERE id=? AND user_id=?", (pid, user_row["id"])).fetchone()
+            prow = conn.execute(
+                "SELECT * FROM profiles WHERE id=? AND user_id=?", (pid, user_row["id"])).fetchone()
             conn.close()
             if prow:
-                ssh_target = {"host": prow["host"], "port": prow["port"], "ssh_username": prow["ssh_username"]}
+                ssh_target = {
+                    "host": prow["host"], "port": prow["port"], "ssh_username": prow["ssh_username"]}
                 profile_name = prow["name"]
         except (ValueError, TypeError):
             pass
 
     using_tmux = bool(TMUX_BIN and sid)
-    master_fd, proc = spawn_shell(24, 80, sid=sid or None, ssh_target=ssh_target)
+    master_fd, proc = spawn_shell(
+        24, 80, sid=sid or None, ssh_target=ssh_target)
 
     conn_id = str(uuid.uuid4())
+    ip = client_ip(websocket)
+    session_bytes_in = 0
+    session_bytes_out_start = METRICS["bytes_out_total"]
+    started_at = time.time()
+
     ACTIVE_SESSIONS[conn_id] = {
-        "username": user_row["username"], "ip": client_ip(websocket), "sid": sid,
-        "target": profile_name or "local", "connected_at": time.time(),
+        "id": conn_id,
+        "username": user_row["username"],
+        "ip": ip,
+        "sid": sid,
+        "target": profile_name or "local",
+        "connected_at": started_at,
+        "_kill": False,
     }
     METRICS["sessions_opened_total"] += 1
+    audit(user_row["username"], "session_open", ip, profile_name or "local")
 
-    reader_task = asyncio.create_task(pump_pty_to_socket(master_fd, proc, websocket))
+    reader_task = asyncio.create_task(
+        pump_pty_to_socket(master_fd, proc, websocket))
+
+    HEARTBEAT_INTERVAL = 20.0
+    last_hb = asyncio.get_event_loop().time()
 
     try:
         while True:
-            raw = await websocket.receive_text()
+            # Check kill signal from admin
+            if ACTIVE_SESSIONS.get(conn_id, {}).get("_kill"):
+                await websocket.send_text("\r\n\x1b[31mSession terminated by administrator.\x1b[0m\r\n")
+                break
+
+            # Heartbeat
+            now = asyncio.get_event_loop().time()
+            if now - last_hb > HEARTBEAT_INTERVAL:
+                try:
+                    await websocket.send_text(json.dumps({"type": "ping"}))
+                except Exception:
+                    break
+                last_hb = now
+
+            try:
+                raw = await asyncio.wait_for(websocket.receive_text(), timeout=25.0)
+            except asyncio.TimeoutError:
+                continue
+
+            ctrl = is_ctrl_type(raw)
+            if ctrl in ("ping", "pong"):
+                last_hb = asyncio.get_event_loop().time()
+                continue
 
             dim = is_resize(raw)
             if dim is not None:
@@ -774,6 +1013,7 @@ async def terminal(websocket: WebSocket):
             try:
                 encoded = raw.encode("utf-8", errors="replace")
                 os.write(master_fd, encoded)
+                session_bytes_in += len(encoded)
                 METRICS["bytes_in_total"] += len(encoded)
             except BlockingIOError:
                 pass
@@ -795,6 +1035,8 @@ async def terminal(websocket: WebSocket):
             os.close(master_fd)
         except OSError:
             pass
+        audit(user_row["username"], "session_close",
+              ip, profile_name or "local")
         await asyncio.get_event_loop().run_in_executor(None, terminate_process, proc, not using_tmux)
 
 
