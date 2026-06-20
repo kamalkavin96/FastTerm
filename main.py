@@ -3,7 +3,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import HTMLResponse, PlainTextResponse, FileResponse, JSONResponse
 from fastapi import (
     FastAPI, WebSocket, WebSocketDisconnect, Request, Depends, Header,
-    HTTPException, UploadFile, File, Form
+    HTTPException, UploadFile, File, Form, APIRouter
 )
 import uvicorn
 import io
@@ -13,8 +13,8 @@ import subprocess
 import hashlib
 import shutil
 import select
-import termios
-import fcntl
+# import termios
+# import fcntl
 import signal
 import json
 import asyncio
@@ -270,6 +270,7 @@ METRICS = {
 
 app = FastAPI()
 
+route = APIRouter()
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -284,19 +285,19 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 app.add_middleware(SecurityHeadersMiddleware)
 
 
-@app.get("/")
+@route.get("/")
 async def root():
     return HTMLResponse('<script>location.replace("/terminal")</script>')
 
 
-@app.get("/terminal")
+@route.get("/home")
 async def home():
     with open(os.path.join(os.path.dirname(__file__), "templates", "terminal.html"), "rb") as f:
         html = f.read().decode("utf-8", errors="replace")
     return HTMLResponse(html)
 
 
-@app.get("/metrics")
+@route.get("/metrics")
 async def metrics(user=Depends(get_current_user)):
     if not user["is_admin"]:
         raise HTTPException(403, "Admin only")
@@ -397,7 +398,7 @@ def check_login(username: str, password: str, totp: str | None, ip: str):
     return True, "ok", row
 
 
-@app.post("/api/login")
+@route.post("/api/login")
 async def api_login(req: LoginRequest, request: Request):
     ip = client_ip_req(request)
     ok, reason, row = check_login(req.username, req.password, req.totp, ip)
@@ -408,7 +409,7 @@ async def api_login(req: LoginRequest, request: Request):
     return {"token": token, "is_admin": bool(row["is_admin"]), "username": row["username"]}
 
 
-@app.post("/api/logout")
+@route.post("/api/logout")
 async def api_logout(request: Request, authorization: str = Header(default="")):
     if authorization.startswith("Bearer "):
         t = authorization[7:]
@@ -423,7 +424,7 @@ async def api_logout(request: Request, authorization: str = Header(default="")):
     return {"ok": True}
 
 
-@app.get("/api/me")
+@route.get("/api/me")
 async def api_me(user=Depends(get_current_user)):
     row = get_user_row(user["username"])
     return {
@@ -433,7 +434,7 @@ async def api_me(user=Depends(get_current_user)):
     }
 
 
-@app.post("/api/me/password")
+@route.post("/api/me/password")
 async def change_password(req: ChangePasswordRequest, user=Depends(get_current_user), request: Request = None):
     row = get_user_row(user["username"])
     if not row or not verify_password(req.current_password, row["pw_hash"], row["pw_salt"]):
@@ -449,7 +450,7 @@ async def change_password(req: ChangePasswordRequest, user=Depends(get_current_u
     return {"ok": True}
 
 
-@app.post("/api/me/totp/enable")
+@route.post("/api/me/totp/enable")
 async def totp_enable(user=Depends(get_current_user)):
     secret = totp_new_secret()
     conn = get_db()
@@ -461,7 +462,7 @@ async def totp_enable(user=Depends(get_current_user)):
     return {"secret": secret, "otpauth_uri": uri, "qr_code": qr_data}
 
 
-@app.post("/api/me/totp/disable")
+@route.post("/api/me/totp/disable")
 async def totp_disable(user=Depends(get_current_user)):
     conn = get_db()
     conn.execute(
@@ -474,7 +475,7 @@ async def totp_disable(user=Depends(get_current_user)):
 # ===========================================================================
 # Profiles
 # ===========================================================================
-@app.get("/api/profiles")
+@route.get("/api/profiles")
 async def list_profiles(user=Depends(get_current_user)):
     row = get_user_row(user["username"])
     conn = get_db()
@@ -486,7 +487,7 @@ async def list_profiles(user=Depends(get_current_user)):
     return [dict(r) for r in rows]
 
 
-@app.post("/api/profiles")
+@route.post("/api/profiles")
 async def create_profile(p: ProfileRequest, user=Depends(get_current_user)):
     if not SSH_BIN:
         raise HTTPException(400, "ssh binary not found on the server")
@@ -503,7 +504,7 @@ async def create_profile(p: ProfileRequest, user=Depends(get_current_user)):
     return {"id": pid}
 
 
-@app.delete("/api/profiles/{profile_id}")
+@route.delete("/api/profiles/{profile_id}")
 async def delete_profile(profile_id: int, user=Depends(get_current_user)):
     row = get_user_row(user["username"])
     conn = get_db()
@@ -517,12 +518,12 @@ async def delete_profile(profile_id: int, user=Depends(get_current_user)):
 # ===========================================================================
 # Admin
 # ===========================================================================
-@app.get("/api/admin/sessions")
+@route.get("/api/admin/sessions")
 async def admin_sessions(_=Depends(require_admin)):
     return list(ACTIVE_SESSIONS.values())
 
 
-@app.delete("/api/admin/sessions/{conn_id}")
+@route.delete("/api/admin/sessions/{conn_id}")
 async def admin_kill_session(conn_id: str, _=Depends(require_admin)):
     sess = ACTIVE_SESSIONS.get(conn_id)
     if not sess:
@@ -531,7 +532,7 @@ async def admin_kill_session(conn_id: str, _=Depends(require_admin)):
     return {"ok": True}
 
 
-@app.get("/api/admin/users")
+@route.get("/api/admin/users")
 async def admin_users(_=Depends(require_admin)):
     conn = get_db()
     rows = conn.execute(
@@ -541,7 +542,7 @@ async def admin_users(_=Depends(require_admin)):
     return [dict(r) for r in rows]
 
 
-@app.post("/api/admin/users")
+@route.post("/api/admin/users")
 async def admin_create_user(req: CreateUserRequest, _=Depends(require_admin)):
     if not USERNAME_RE.match(req.username):
         raise HTTPException(400, "Invalid username")
@@ -562,7 +563,7 @@ async def admin_create_user(req: CreateUserRequest, _=Depends(require_admin)):
     return {"ok": True}
 
 
-@app.delete("/api/admin/users/{username}")
+@route.delete("/api/admin/users/{username}")
 async def admin_delete_user(username: str, admin=Depends(require_admin)):
     if username == admin["username"]:
         raise HTTPException(400, "Cannot delete your own account")
@@ -573,7 +574,7 @@ async def admin_delete_user(username: str, admin=Depends(require_admin)):
     return {"ok": True}
 
 
-@app.get("/api/admin/audit")
+@route.get("/api/admin/audit")
 async def admin_audit(_=Depends(require_admin), limit: int = 100):
     conn = get_db()
     rows = conn.execute(
@@ -584,7 +585,7 @@ async def admin_audit(_=Depends(require_admin), limit: int = 100):
     return [dict(r) for r in rows]
 
 
-@app.get("/api/admin/metrics")
+@route.get("/api/admin/metrics")
 async def admin_metrics(_=Depends(require_admin)):
     conn = get_db()
     locked_count = len(
@@ -628,7 +629,7 @@ def safe_join(root: str, rel: str) -> str:
     return target
 
 
-@app.get("/api/files")
+@route.get("/api/files")
 async def list_files(path: str = "", user=Depends(get_current_user)):
     root = user_root(user["username"])
     target = safe_join(root, path)
@@ -646,7 +647,7 @@ async def list_files(path: str = "", user=Depends(get_current_user)):
     return {"path": path, "entries": entries}
 
 
-@app.get("/api/files/download")
+@route.get("/api/files/download")
 async def download_file(path: str, token: str = "", authorization: str = Header(default="")):
     auth = verify_token(token) if token else None
     if not auth and authorization.startswith("Bearer "):
@@ -660,7 +661,7 @@ async def download_file(path: str, token: str = "", authorization: str = Header(
     return FileResponse(target, filename=os.path.basename(target))
 
 
-@app.get("/api/files/preview")
+@route.get("/api/files/preview")
 async def preview_file(path: str, token: str = "", authorization: str = Header(default="")):
     auth = verify_token(token) if token else None
     if not auth and authorization.startswith("Bearer "):
@@ -682,7 +683,7 @@ async def preview_file(path: str, token: str = "", authorization: str = Header(d
         raise HTTPException(400, "Cannot preview this file type")
 
 
-@app.post("/api/files/upload")
+@route.post("/api/files/upload")
 async def upload_file(path: str = Form(""), file: UploadFile = File(...), user=Depends(get_current_user)):
     root = user_root(user["username"])
     target_dir = safe_join(root, path)
@@ -705,7 +706,7 @@ async def upload_file(path: str = Form(""), file: UploadFile = File(...), user=D
     return {"ok": True, "size": size}
 
 
-@app.post("/api/files/mkdir")
+@route.post("/api/files/mkdir")
 async def mkdir(path: str = Form(...), user=Depends(get_current_user)):
     root = user_root(user["username"])
     target = safe_join(root, path)
@@ -713,7 +714,7 @@ async def mkdir(path: str = Form(...), user=Depends(get_current_user)):
     return {"ok": True}
 
 
-@app.post("/api/files/rename")
+@route.post("/api/files/rename")
 async def rename_file(req: RenameFileRequest, user=Depends(get_current_user)):
     root = user_root(user["username"])
     src = safe_join(root, req.old_path)
@@ -731,7 +732,7 @@ async def rename_file(req: RenameFileRequest, user=Depends(get_current_user)):
     return {"ok": True}
 
 
-@app.delete("/api/files")
+@route.delete("/api/files")
 async def delete_file(path: str, user=Depends(get_current_user)):
     root = user_root(user["username"])
     target = safe_join(root, path)
@@ -904,7 +905,7 @@ def is_ctrl_type(raw: str):
         return None
 
 
-@app.websocket("/terminal/ws")
+@route.websocket("/ws")
 async def terminal(websocket: WebSocket):
     await websocket.accept()
 
@@ -1041,6 +1042,8 @@ async def terminal(websocket: WebSocket):
 
 
 init_db()
+
+app.include_router(router=route, prefix=os.getenv("BASE_PATH", ""))
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8000"))

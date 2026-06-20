@@ -2427,9 +2427,11 @@
 
         const proto = location.protocol === "https:" ? "wss:" : "ws:";
 
-        /* ═══════════════════════════════════════
-   THEMES
-═══════════════════════════════════════ */
+        const BASE_PATH = "/terminal";
+
+      /* ═══════════════════════════════════════
+        THEMES
+      ═══════════════════════════════════════ */
         const THEMES = {
           gnome: {
             label: "GNOME",
@@ -3534,8 +3536,8 @@
         ];
 
         /* ═══════════════════════════════════════
-   SETTINGS PERSISTENCE
-═══════════════════════════════════════ */
+          SETTINGS PERSISTENCE
+        ═══════════════════════════════════════ */
         const SETTINGS_KEY = "webterm.settings.v2";
         function loadSettings() {
           try {
@@ -3568,14 +3570,14 @@
         let settings = loadSettings();
 
         /* ═══════════════════════════════════════
-   FONT READINESS (NEW — fixes the "half page on first open" bug)
-   xterm measures glyph width from the rendered font. If our webfonts
-   (Google Fonts) haven't finished loading yet when fit() first runs,
-   xterm measures against the fallback font and gets the column count
-   wrong — producing the "half page until I switch tabs" symptom.
-   We proactively kick off font loading at boot and expose a promise
-   that every first-fit waits on.
-═══════════════════════════════════════ */
+          FONT READINESS (NEW — fixes the "half page on first open" bug)
+          xterm measures glyph width from the rendered font. If our webfonts
+          (Google Fonts) haven't finished loading yet when fit() first runs,
+          xterm measures against the fallback font and gets the column count
+          wrong — producing the "half page until I switch tabs" symptom.
+          We proactively kick off font loading at boot and expose a promise
+          that every first-fit waits on.
+        ═══════════════════════════════════════ */
         const fontsReadyPromise = (function () {
           const wanted = FONTS.map((f) => "14px " + f.value);
           if (document.fonts && document.fonts.load) {
@@ -3589,8 +3591,8 @@
         })();
 
         /* ═══════════════════════════════════════
-   TOKEN / AUTH
-═══════════════════════════════════════ */
+          TOKEN / AUTH
+        ═══════════════════════════════════════ */
         const TOKEN_KEY = "webterm.token";
         const ADMIN_KEY = "webterm.admin";
         function getToken() {
@@ -3624,7 +3626,7 @@
           opts.headers = Object.assign({}, opts.headers, {
             Authorization: "Bearer " + getToken(),
           });
-          const res = await fetch(path, opts);
+          const res = await fetch( BASE_PATH +path, opts);
           if (!res.ok) {
             let detail = res.statusText;
             try {
@@ -3741,7 +3743,7 @@
           try {
             const body = { username, password };
             if (totp) body.totp = totp;
-            const res = await fetch("/api/login", {
+            const res = await fetch(BASE_PATH +"/api/login", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(body),
@@ -4183,7 +4185,7 @@
           try {
             const fd = new FormData();
             fd.append("path", p);
-            await fetch("/api/files/mkdir", {
+            await fetch(BASE_PATH + "/api/files/mkdir", {
               method: "POST",
               headers: { Authorization: "Bearer " + getToken() },
               body: fd,
@@ -4209,7 +4211,7 @@
           const fd = new FormData();
           fd.append("path", filesPath);
           fd.append("file", file);
-          const res = await fetch("/api/files/upload", {
+          const res = await fetch(BASE_PATH + "/api/files/upload", {
             method: "POST",
             headers: { Authorization: "Bearer " + getToken() },
             body: fd,
