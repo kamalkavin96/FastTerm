@@ -1,18 +1,18 @@
-from dotenv import load_dotenv
-load_dotenv("../.env")
-
-import logging
-import os
-import uvicorn
-from fastapi import FastAPI
-
-from core.config import BASE_PATH
-from core.database import init_db
-from core.middleware import SecurityHeadersMiddleware
-
 from routers import home, auth, profile, admin, files, metrics, terminal
+from core.middleware import SecurityHeadersMiddleware
+from core.database import init_db
+from core.config import BASE_PATH
+from fastapi import FastAPI
+import uvicorn
+import logging
+from dotenv import load_dotenv, find_dotenv
+import os
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+load_dotenv(find_dotenv())
+
+
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s %(message)s")
 
 app = FastAPI()
 app.add_middleware(SecurityHeadersMiddleware)
