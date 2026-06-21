@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 import logging
 import os
 import uvicorn
@@ -14,7 +17,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 app = FastAPI()
 app.add_middleware(SecurityHeadersMiddleware)
 
-prefix = BASE_PATH  # e.g. "" or "/app"
+prefix = BASE_PATH
 
 app.include_router(home.router, prefix=prefix)
 app.include_router(auth.router, prefix=prefix)

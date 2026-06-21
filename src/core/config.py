@@ -2,9 +2,6 @@ import os
 import secrets
 import shutil
 import logging
-from dotenv import load_dotenv
-
-load_dotenv()
 
 log = logging.getLogger("terminal")
 
