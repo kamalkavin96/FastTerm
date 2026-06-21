@@ -15,7 +15,8 @@ RUN git clone -b dev-re-struct https://github.com/kamalkavin96/FastTerm.git .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy nginx config from repo
-RUN cp nginx.conf /etc/nginx/nginx.conf
+RUN cp nginx/nginx.conf /etc/nginx/nginx.conf
+RUN cp nginx/index.html /usr/share/nginx/html/index.html
 
 EXPOSE 7860
 
