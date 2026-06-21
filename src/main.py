@@ -1,3 +1,9 @@
+from dotenv import load_dotenv, find_dotenv
+import os
+
+load_dotenv(find_dotenv())
+
+
 from routers import home, auth, profile, admin, files, metrics, terminal
 from core.middleware import SecurityHeadersMiddleware
 from core.database import init_db
@@ -5,10 +11,7 @@ from core.config import BASE_PATH
 from fastapi import FastAPI
 import uvicorn
 import logging
-from dotenv import load_dotenv, find_dotenv
-import os
 
-load_dotenv(find_dotenv())
 
 
 logging.basicConfig(level=logging.INFO,
