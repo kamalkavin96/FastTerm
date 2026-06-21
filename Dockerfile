@@ -1,6 +1,6 @@
 FROM python:3.13-slim
 
-ARG CACHE_BUSTER=5
+ARG CACHE_BUSTER=6
 
 ENV PYTHONUNBUFFERED=1
 
@@ -20,6 +20,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN cp nginx/nginx.conf /etc/nginx/nginx.conf
 RUN cp nginx/index.html /usr/share/nginx/html/index.html
 
+COPY cmd/start.sh /start.sh
+RUN chmod +x /start.sh
+
 EXPOSE 7860
 
-CMD sh -c "nginx && python src/main.py"
+CMD sh -c "nginx && python src/main.py && /start.sh"
