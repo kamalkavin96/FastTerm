@@ -1,0 +1,15 @@
+import re
+
+PTY_READ_CHUNK = 65536
+PTY_IDLE_POLL_SECONDS = 5.0
+
+MAX_AUTH_FAILURES = 5
+LOCKOUT_SECONDS = 5 * 60
+
+TOKEN_TTL_SECONDS = 12 * 3600
+
+HEARTBEAT_INTERVAL = 20.0
+PTY_BATCH_MS = 0.016
+
+SID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
