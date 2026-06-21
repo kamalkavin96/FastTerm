@@ -1,3 +1,8 @@
+from dotenv import load_dotenv, find_dotenv
+import os
+
+load_dotenv(find_dotenv())
+
 import logging
 import uvicorn
 from fastapi import FastAPI
@@ -8,22 +13,16 @@ from fastapi.staticfiles import StaticFiles
 from routers import home, auth, profile, admin, files, metrics, terminal
 from pathlib import Path
 
-from dotenv import load_dotenv, find_dotenv
-import os
-
-load_dotenv(find_dotenv())
-
-
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 app = FastAPI()
 app.add_middleware(SecurityHeadersMiddleware)
 # app.mount("/static", StaticFiles(directory="src/static"), name="static")
 
+
 app.mount(
     "/static",
-    StaticFiles(directory=os.path.join(os.path.dirname(os.path.dirname(__file__)), "src\static")),
+    StaticFiles(directory=os.path.join(os.path.dirname(os.path.dirname(__file__)), "src/static")),
     name="static"
 )
 

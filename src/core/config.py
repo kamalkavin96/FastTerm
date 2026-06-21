@@ -16,6 +16,8 @@ if SQLITE_DB_PATH != "":
 
 WEBTERM_DB = os.getenv("WEBTERM_DB", os.path.join(SQLITE_DB_PATH + "webterm.db"),)
 
+log.info("WEBTERM_DB Path: " + WEBTERM_DB)
+
 WEBTERM_MAX_UPLOAD_MB = int(os.getenv("WEBTERM_MAX_UPLOAD_MB", "100"))
 
 FILES_ROOT = os.path.abspath(os.getenv("WEBTERM_FILES_ROOT", os.path.join(
