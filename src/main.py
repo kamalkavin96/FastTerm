@@ -22,8 +22,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 prefix = BASE_PATH
 
-
-print(BASE_PATH)
+print("BASE_PATH:", BASE_PATH)
 
 app.include_router(home.router, prefix=prefix)
 app.include_router(auth.router, prefix=prefix)
