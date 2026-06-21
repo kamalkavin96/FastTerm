@@ -1,5 +1,7 @@
 FROM python:3.13-slim
 
+ARG CACHE_BUSTER=4
+
 ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update && \
