@@ -25,4 +25,5 @@ RUN chmod +x /start.sh
 
 EXPOSE 7860
 
-CMD sh -c "nginx && python src/main.py && /start.sh"
+# CMD sh -c "nginx && python src/main.py && /start.sh"
+CMD ["/start.sh"]

@@ -2,6 +2,16 @@
 
 set -e
 
+echo "Starting Nginx..."
+nginx
+
+echo "Starting FastTerm..."
+python /app/src/main.py &
+FASTAPI_PID=$!
+
+
+echo "Installing/Starting Uptime Kuma..."
+
 # Install Node.js if not already installed
 if ! command -v node >/dev/null 2>&1; then
     apt-get update
@@ -28,3 +38,5 @@ mkdir -p /data
 
 # Start Uptime Kuma in background
 DATA_DIR=/data PORT=3000 npm run start-server &
+
+wait $FASTAPI_PID
